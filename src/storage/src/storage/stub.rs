@@ -14,6 +14,7 @@
 
 use crate::Result;
 use crate::model::{Object, ReadObjectRequest};
+use crate::model_ext::ServiceAccount;
 use crate::model_ext::WriteObjectRequest;
 use crate::read_object::ReadObjectResponse;
 use crate::storage::request_options::RequestOptions;
@@ -80,6 +81,15 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
     ) -> impl std::future::Future<Output = Result<(Descriptor, Vec<ReadObjectResponse>)>> + Send
     {
         unimplemented_stub::<(Descriptor, Vec<ReadObjectResponse>)>()
+    }
+
+    /// Implements [crate::client::Storage::get_service_account].
+    fn get_service_account(
+        &self,
+        _project_id: String,
+        _options: RequestOptions,
+    ) -> impl std::future::Future<Output = Result<ServiceAccount>> + Send {
+        unimplemented_stub::<ServiceAccount>()
     }
 }
 

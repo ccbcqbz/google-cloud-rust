@@ -22,6 +22,9 @@ use sha2::{Digest, Sha256};
 mod open_object_request;
 pub use open_object_request::OpenObjectRequest;
 
+mod service_account;
+pub use service_account::ServiceAccount;
+
 /// ObjectHighlights contains select metadata from a [crate::model::Object].
 #[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]

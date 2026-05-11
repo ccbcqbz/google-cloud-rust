@@ -13,20 +13,22 @@
 // limitations under the License.
 
 use super::tracing::{TracingObjectDescriptor, TracingResponse};
-use crate::Result;
 use crate::model::{Object, ReadObjectRequest};
-use crate::model_ext::WriteObjectRequest;
+use crate::model_ext::{ServiceAccount, WriteObjectRequest};
 use crate::read_object::ReadObjectResponse;
 use crate::storage::client::StorageInner;
-use crate::storage::info::INSTRUMENTATION;
+use crate::storage::info::{INSTRUMENTATION, X_GOOG_API_CLIENT_HEADER};
 use crate::storage::perform_upload::PerformUpload;
 use crate::storage::read_object::Reader;
 use crate::storage::request_options::RequestOptions;
 use crate::storage::streaming_source::{Seek, StreamingSource};
+use crate::{Error, Result};
 use crate::{
     model_ext::OpenObjectRequest, object_descriptor::ObjectDescriptor,
     storage::bidi::connector::Connector, storage::bidi::transport::ObjectDescriptorTransport,
 };
+use gaxi::attempt_info::AttemptInfo;
+use gaxi::http::reqwest::{HeaderValue, Method};
 use gaxi::observability::{ClientRequestAttributes, DurationMetric, RequestRecorder};
 use std::sync::Arc;
 
@@ -262,6 +264,87 @@ impl Storage {
             .collect::<Vec<_>>();
         Ok((descriptor, readers))
     }
+
+    async fn get_service_account_plain(
+        &self,
+        project_id: String,
+        options: RequestOptions,
+    ) -> Result<ServiceAccount> {
+        let throttler = options.retry_throttler.clone();
+        let retry = options.retry_policy.clone();
+        let backoff = options.backoff_policy.clone();
+
+        let inner_client = self.inner.clone();
+
+        let mut count = 0;
+        let inner = async move |remaining_time: Option<std::time::Duration>| {
+            let attempt_count = count;
+            count += 1;
+            let builder = inner_client
+                .client
+                .http_builder(
+                    Method::GET,
+                    &format!("/storage/v1/projects/{project_id}/serviceAccount"),
+                )
+                .header(
+                    "x-goog-api-client",
+                    HeaderValue::from_static(&X_GOOG_API_CLIENT_HEADER),
+                );
+
+            let response = builder
+                .send(
+                    options.gax(),
+                    AttemptInfo::new(attempt_count).set_or_clear_remaining_time(remaining_time),
+                )
+                .await
+                .map_err(Error::io)?;
+
+            if !response.status().is_success() {
+                return gaxi::http::to_http_error(response).await;
+            }
+
+            let service_account = response
+                .json::<ServiceAccount>()
+                .await
+                .map_err(Error::deser)?;
+            Ok(service_account)
+        };
+
+        google_cloud_gax::retry_loop_internal::retry_loop(
+            inner,
+            async |duration| tokio::time::sleep(duration).await,
+            true, // idempotent
+            throttler,
+            retry,
+            backoff,
+        )
+        .await
+    }
+
+    #[tracing::instrument(name = "get_service_account", level = tracing::Level::DEBUG, ret, err(Debug))]
+    async fn get_service_account_tracing(
+        &self,
+        project_id: String,
+        options: RequestOptions,
+    ) -> Result<ServiceAccount> {
+        let resource_name = format!("//storage.googleapis.com/projects/{project_id}");
+        let (_span, pending) = gaxi::client_request_signals!(
+            metric: self.metric.clone(),
+            info: *INSTRUMENTATION,
+            method: "client::Storage::get_service_account",
+            async {
+                if let Some(recorder) = RequestRecorder::current() {
+                    recorder.on_client_request(
+                        ClientRequestAttributes::default()
+                            .set_url_template("/storage/v1/projects/{project_id}/serviceAccount")
+                            .set_resource_name(resource_name),
+                    );
+                }
+                self.get_service_account_plain(project_id, options).await
+            }
+        );
+        pending.await
+    }
 }
 
 impl super::stub::Storage for Storage {
@@ -324,6 +407,18 @@ impl super::stub::Storage for Storage {
             return self.open_object_tracing(request, options).await;
         }
         self.open_object_plain(request, options).await
+    }
+
+    /// Implements [crate::client::Storage::get_service_account].
+    async fn get_service_account(
+        &self,
+        project_id: String,
+        options: RequestOptions,
+    ) -> Result<ServiceAccount> {
+        if self.tracing {
+            return self.get_service_account_tracing(project_id, options).await;
+        }
+        self.get_service_account_plain(project_id, options).await
     }
 }
 
@@ -722,5 +817,65 @@ mod tests {
             mismatch.is_empty(),
             "mismatch = {mismatch:?}\ngot      = {got:?}\nwant     = {want:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn get_service_account_success() -> anyhow::Result<()> {
+        let _guard = TestLayer::initialize();
+
+        let server = Server::run();
+        let want_email = "service-account@example.com";
+        let response_body = serde_json::json!({
+            "kind": "storage#serviceAccount",
+            "emailAddress": want_email
+        });
+
+        server.expect(
+            Expectation::matching(all_of![request::method_path(
+                "GET",
+                "/storage/v1/projects/test-project/serviceAccount"
+            ),])
+            .respond_with(httptest::responders::status_code(200).body(response_body.to_string())),
+        );
+
+        let client = crate::client::Storage::builder()
+            .with_endpoint(format!("http://{}", server.addr()))
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+
+        let got = client.get_service_account("test-project").await?;
+        assert_eq!(got.email_address, want_email);
+        assert_eq!(got.kind, "storage#serviceAccount");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_service_account_error() -> anyhow::Result<()> {
+        let _guard = TestLayer::initialize();
+
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![request::method_path(
+                "GET",
+                "/storage/v1/projects/test-project/serviceAccount"
+            ),])
+            .respond_with(httptest::responders::status_code(404)),
+        );
+
+        let client = crate::client::Storage::builder()
+            .with_endpoint(format!("http://{}", server.addr()))
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+
+        let response = client.get_service_account("test-project").await;
+        assert!(
+            matches!(response, Err(ref e) if e.is_transport()),
+            "{response:?}"
+        );
+
+        Ok(())
     }
 }

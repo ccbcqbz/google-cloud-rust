@@ -275,6 +275,28 @@ where
     {
         OpenObject::new(self.stub.clone(), bucket, object, self.options.clone())
     }
+
+    /// Retrieves the email address of the Cloud Storage service account for a project.
+    ///
+    /// # Example
+    /// ```
+    /// # use google_cloud_storage::client::Storage;
+    /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
+    /// let service_account = client.get_service_account("my-project").await?;
+    /// println!("Service account email: {}", service_account.email_address);
+    /// # Ok(()) }
+    /// ```
+    pub async fn get_service_account<P>(
+        &self,
+        project_id: P,
+    ) -> crate::Result<crate::model_ext::ServiceAccount>
+    where
+        P: Into<String>,
+    {
+        self.stub
+            .get_service_account(project_id.into(), self.options.clone())
+            .await
+    }
 }
 
 impl Storage {
