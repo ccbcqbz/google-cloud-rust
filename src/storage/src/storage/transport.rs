@@ -24,10 +24,16 @@ use crate::storage::read_object::Reader;
 use crate::storage::request_options::RequestOptions;
 use crate::storage::streaming_source::{Seek, StreamingSource};
 use crate::{
-    model_ext::OpenObjectRequest, object_descriptor::ObjectDescriptor,
-    storage::bidi::connector::Connector, storage::bidi::transport::ObjectDescriptorTransport,
+    Error,
+    model_ext::{Notification, OpenObjectRequest},
+    object_descriptor::ObjectDescriptor,
+    storage::bidi::connector::Connector,
+    storage::bidi::transport::ObjectDescriptorTransport,
 };
+use gaxi::attempt_info::AttemptInfo;
+use gaxi::http::reqwest::Method;
 use gaxi::observability::{ClientRequestAttributes, DurationMetric, RequestRecorder};
+use http::header::HeaderValue;
 use std::sync::Arc;
 
 /// An implementation of [`stub::Storage`][crate::storage::stub::Storage] that
@@ -324,6 +330,168 @@ impl super::stub::Storage for Storage {
             return self.open_object_tracing(request, options).await;
         }
         self.open_object_plain(request, options).await
+    }
+
+    async fn create_notification(
+        &self,
+        bucket: String,
+        notification: Notification,
+        options: RequestOptions,
+    ) -> Result<Notification> {
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+            Error::binding(format!(
+                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+            ))
+        })?;
+
+        let builder = self
+            .inner
+            .client
+            .http_builder(
+                Method::POST,
+                &format!("/storage/v1/b/{bucket_id}/notificationConfigs"),
+            )
+            .header("content-type", "application/json")
+            .header(
+                "x-goog-api-client",
+                HeaderValue::from_static(&crate::storage::info::X_GOOG_API_CLIENT_HEADER),
+            )
+            .body(serde_json::to_string(&notification).map_err(Error::deser)?);
+
+        let response = builder
+            .send(options.gax(), AttemptInfo::new(0))
+            .await
+            .map_err(Error::io)?;
+
+        if !response.status().is_success() {
+            return gaxi::http::to_http_error(response).await;
+        }
+
+        let notification = response
+            .json::<Notification>()
+            .await
+            .map_err(Error::deser)?;
+        Ok(notification)
+    }
+
+    async fn get_notification(
+        &self,
+        bucket: String,
+        notification_id: String,
+        options: RequestOptions,
+    ) -> Result<Notification> {
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+            Error::binding(format!(
+                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+            ))
+        })?;
+
+        let builder = self
+            .inner
+            .client
+            .http_builder(
+                Method::GET,
+                &format!("/storage/v1/b/{bucket_id}/notificationConfigs/{notification_id}"),
+            )
+            .header(
+                "x-goog-api-client",
+                HeaderValue::from_static(&crate::storage::info::X_GOOG_API_CLIENT_HEADER),
+            );
+
+        let response = builder
+            .send(options.gax(), AttemptInfo::new(0))
+            .await
+            .map_err(Error::io)?;
+
+        if !response.status().is_success() {
+            return gaxi::http::to_http_error(response).await;
+        }
+
+        let notification = response
+            .json::<Notification>()
+            .await
+            .map_err(Error::deser)?;
+        Ok(notification)
+    }
+
+    async fn list_notifications(
+        &self,
+        bucket: String,
+        options: RequestOptions,
+    ) -> Result<Vec<Notification>> {
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+            Error::binding(format!(
+                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+            ))
+        })?;
+
+        let builder = self
+            .inner
+            .client
+            .http_builder(
+                Method::GET,
+                &format!("/storage/v1/b/{bucket_id}/notificationConfigs"),
+            )
+            .header(
+                "x-goog-api-client",
+                HeaderValue::from_static(&crate::storage::info::X_GOOG_API_CLIENT_HEADER),
+            );
+
+        let response = builder
+            .send(options.gax(), AttemptInfo::new(0))
+            .await
+            .map_err(Error::io)?;
+
+        if !response.status().is_success() {
+            return gaxi::http::to_http_error(response).await;
+        }
+
+        #[derive(serde::Deserialize)]
+        struct ListNotificationsResponse {
+            items: Option<Vec<Notification>>,
+        }
+
+        let list_resp = response
+            .json::<ListNotificationsResponse>()
+            .await
+            .map_err(Error::deser)?;
+        Ok(list_resp.items.unwrap_or_default())
+    }
+
+    async fn delete_notification(
+        &self,
+        bucket: String,
+        notification_id: String,
+        options: RequestOptions,
+    ) -> Result<()> {
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+            Error::binding(format!(
+                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+            ))
+        })?;
+
+        let builder = self
+            .inner
+            .client
+            .http_builder(
+                Method::DELETE,
+                &format!("/storage/v1/b/{bucket_id}/notificationConfigs/{notification_id}"),
+            )
+            .header(
+                "x-goog-api-client",
+                HeaderValue::from_static(&crate::storage::info::X_GOOG_API_CLIENT_HEADER),
+            );
+
+        let response = builder
+            .send(options.gax(), AttemptInfo::new(0))
+            .await
+            .map_err(Error::io)?;
+
+        if !response.status().is_success() {
+            return gaxi::http::to_http_error(response).await;
+        }
+
+        Ok(())
     }
 }
 
@@ -722,5 +890,115 @@ mod tests {
             mismatch.is_empty(),
             "mismatch = {mismatch:?}\ngot      = {got:?}\nwant     = {want:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn notification_configs_crud() -> anyhow::Result<()> {
+        let server = Server::run();
+
+        let custom_attrs = [("client-id".to_string(), "app-server-1".to_string())].into();
+        let input = crate::model_ext::Notification::new(
+            "//pubsub.googleapis.com/projects/my-project/topics/my-topic",
+        )
+        .set_payload_format("JSON_API_V1")
+        .set_event_types(vec!["OBJECT_FINALIZE", "OBJECT_DELETE"])
+        .set_custom_attributes(custom_attrs)
+        .set_object_name_prefix("uploads/");
+
+        let resp_body = serde_json::json!({
+            "kind": "storage#notification",
+            "id": "12",
+            "selfLink": "https://storage.googleapis.com/storage/v1/b/test-bucket/notificationConfigs/12",
+            "topic": "//pubsub.googleapis.com/projects/my-project/topics/my-topic",
+            "payload_format": "JSON_API_V1",
+            "event_types": ["OBJECT_FINALIZE", "OBJECT_DELETE"],
+            "custom_attributes": {"client-id": "app-server-1"},
+            "object_name_prefix": "uploads/"
+        });
+
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", "/storage/v1/b/test-bucket/notificationConfigs"),
+                request::body(serde_json::to_string(&input)?)
+            ])
+            .respond_with(
+                status_code(200)
+                    .body(serde_json::to_string(&resp_body)?)
+                    .append_header("content-type", "application/json"),
+            ),
+        );
+
+        server.expect(
+            Expectation::matching(request::method_path(
+                "GET",
+                "/storage/v1/b/test-bucket/notificationConfigs/12",
+            ))
+            .respond_with(
+                status_code(200)
+                    .body(serde_json::to_string(&resp_body)?)
+                    .append_header("content-type", "application/json"),
+            ),
+        );
+
+        let list_resp = serde_json::json!({
+            "kind": "storage#notifications",
+            "items": [resp_body]
+        });
+        server.expect(
+            Expectation::matching(request::method_path(
+                "GET",
+                "/storage/v1/b/test-bucket/notificationConfigs",
+            ))
+            .respond_with(
+                status_code(200)
+                    .body(serde_json::to_string(&list_resp)?)
+                    .append_header("content-type", "application/json"),
+            ),
+        );
+
+        server.expect(
+            Expectation::matching(request::method_path(
+                "DELETE",
+                "/storage/v1/b/test-bucket/notificationConfigs/12",
+            ))
+            .respond_with(status_code(204)),
+        );
+
+        let client = crate::client::Storage::builder()
+            .with_endpoint(format!("http://{}", server.addr()))
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+
+        let created = client
+            .create_notification("projects/_/buckets/test-bucket", input)
+            .await?;
+        assert_eq!(created.id.as_deref(), Some("12"));
+        assert_eq!(
+            created.topic,
+            "//pubsub.googleapis.com/projects/my-project/topics/my-topic"
+        );
+        assert_eq!(created.payload_format.as_deref(), Some("JSON_API_V1"));
+
+        let fetched = client
+            .get_notification("projects/_/buckets/test-bucket", "12")
+            .await?;
+        assert_eq!(fetched.id.as_deref(), Some("12"));
+        assert_eq!(
+            fetched.topic,
+            "//pubsub.googleapis.com/projects/my-project/topics/my-topic"
+        );
+
+        let list = client
+            .list_notifications("projects/_/buckets/test-bucket")
+            .await?;
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id.as_deref(), Some("12"));
+
+        client
+            .delete_notification("projects/_/buckets/test-bucket", "12")
+            .await?;
+
+        Ok(())
     }
 }

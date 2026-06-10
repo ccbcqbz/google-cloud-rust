@@ -371,6 +371,68 @@ impl From<ReopenAppendableObjectRequest> for crate::google::storage::v2::AppendO
     }
 }
 
+/// Represents a GCS bucket notification configuration.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Notification {
+    /// The ID of the notification.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The Pub/Sub topic to publish events to.
+    pub topic: String,
+    /// The payload format of the notification.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_format: Option<String>,
+    /// The event types that trigger notifications.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_types: Option<Vec<String>>,
+    /// Custom attributes to include in the notification message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_attributes: Option<std::collections::HashMap<String, String>>,
+    /// Prefix filter for object names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_name_prefix: Option<String>,
+    /// Self-link of the notification.
+    #[serde(rename = "selfLink", skip_serializing_if = "Option::is_none")]
+    pub self_link: Option<String>,
+    /// Kind of resource.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
+impl Notification {
+    /// Creates a new `Notification` configuration for the specified topic.
+    pub fn new<T: Into<String>>(topic: T) -> Self {
+        Self {
+            topic: topic.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Sets the payload format.
+    pub fn set_payload_format<T: Into<String>>(mut self, v: T) -> Self {
+        self.payload_format = Some(v.into());
+        self
+    }
+
+    /// Sets the event types.
+    pub fn set_event_types<T: Into<String>>(mut self, v: Vec<T>) -> Self {
+        self.event_types = Some(v.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Sets the custom attributes.
+    pub fn set_custom_attributes(mut self, v: std::collections::HashMap<String, String>) -> Self {
+        self.custom_attributes = Some(v);
+        self
+    }
+
+    /// Sets the object name prefix filter.
+    pub fn set_object_name_prefix<T: Into<String>>(mut self, v: T) -> Self {
+        self.object_name_prefix = Some(v.into());
+        self
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

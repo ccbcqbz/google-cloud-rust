@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::request_options::RequestOptions;
+use crate::Result;
 use crate::builder::storage::ReadObject;
 use crate::builder::storage::WriteObject;
 use crate::read_resume_policy::ReadResumePolicy;
@@ -274,6 +275,102 @@ where
         O: Into<String>,
     {
         OpenObject::new(self.stub.clone(), bucket, object, self.options.clone())
+    }
+
+    /// Creates a notification configuration on a bucket.
+    ///
+    /// # Example
+    /// ```
+    /// # use google_cloud_storage::client::Storage;
+    /// # use google_cloud_storage::model_ext::Notification;
+    /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
+    /// let notification = Notification::new("projects/my-project/topics/my-topic");
+    /// let response = client
+    ///     .create_notification("projects/_/buckets/my-bucket", notification)
+    ///     .await?;
+    /// println!("created notification config id={}", response.id.unwrap());
+    /// # Ok(()) }
+    /// ```
+    pub async fn create_notification<B>(
+        &self,
+        bucket: B,
+        notification: crate::model_ext::Notification,
+    ) -> Result<crate::model_ext::Notification>
+    where
+        B: Into<String>,
+    {
+        self.stub
+            .create_notification(bucket.into(), notification, self.options.clone())
+            .await
+    }
+
+    /// Gets a specific notification configuration on a bucket.
+    ///
+    /// # Example
+    /// ```
+    /// # use google_cloud_storage::client::Storage;
+    /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
+    /// let response = client
+    ///     .get_notification("projects/_/buckets/my-bucket", "12")
+    ///     .await?;
+    /// println!("notification topic={}", response.topic);
+    /// # Ok(()) }
+    /// ```
+    pub async fn get_notification<B, I>(
+        &self,
+        bucket: B,
+        notification_id: I,
+    ) -> Result<crate::model_ext::Notification>
+    where
+        B: Into<String>,
+        I: Into<String>,
+    {
+        self.stub
+            .get_notification(bucket.into(), notification_id.into(), self.options.clone())
+            .await
+    }
+
+    /// Lists all notification configurations on a bucket.
+    ///
+    /// # Example
+    /// ```
+    /// # use google_cloud_storage::client::Storage;
+    /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
+    /// let list = client.list_notifications("projects/_/buckets/my-bucket").await?;
+    /// for n in list {
+    ///     println!("notification ID={} topic={}", n.id.unwrap(), n.topic);
+    /// }
+    /// # Ok(()) }
+    /// ```
+    pub async fn list_notifications<B>(
+        &self,
+        bucket: B,
+    ) -> Result<Vec<crate::model_ext::Notification>>
+    where
+        B: Into<String>,
+    {
+        self.stub
+            .list_notifications(bucket.into(), self.options.clone())
+            .await
+    }
+
+    /// Deletes a notification configuration from a bucket.
+    ///
+    /// # Example
+    /// ```
+    /// # use google_cloud_storage::client::Storage;
+    /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
+    /// client.delete_notification("projects/_/buckets/my-bucket", "12").await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn delete_notification<B, I>(&self, bucket: B, notification_id: I) -> Result<()>
+    where
+        B: Into<String>,
+        I: Into<String>,
+    {
+        self.stub
+            .delete_notification(bucket.into(), notification_id.into(), self.options.clone())
+            .await
     }
 }
 

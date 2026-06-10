@@ -20,7 +20,7 @@ use crate::storage::request_options::RequestOptions;
 use crate::streaming_source::{Seek, StreamingSource};
 use crate::{
     http::HeaderMap,
-    model_ext::{OpenObjectRequest, ReadRange},
+    model_ext::{Notification, OpenObjectRequest, ReadRange},
     object_descriptor::ObjectDescriptor as Descriptor,
 };
 use gaxi::unimplemented::UNIMPLEMENTED;
@@ -80,6 +80,45 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
     ) -> impl std::future::Future<Output = Result<(Descriptor, Vec<ReadObjectResponse>)>> + Send
     {
         unimplemented_stub::<(Descriptor, Vec<ReadObjectResponse>)>()
+    }
+
+    /// Implements [crate::client::Storage::create_notification].
+    fn create_notification(
+        &self,
+        _bucket: String,
+        _notification: Notification,
+        _options: RequestOptions,
+    ) -> impl std::future::Future<Output = Result<Notification>> + Send {
+        unimplemented_stub::<Notification>()
+    }
+
+    /// Implements [crate::client::Storage::get_notification].
+    fn get_notification(
+        &self,
+        _bucket: String,
+        _notification_id: String,
+        _options: RequestOptions,
+    ) -> impl std::future::Future<Output = Result<Notification>> + Send {
+        unimplemented_stub::<Notification>()
+    }
+
+    /// Implements [crate::client::Storage::list_notifications].
+    fn list_notifications(
+        &self,
+        _bucket: String,
+        _options: RequestOptions,
+    ) -> impl std::future::Future<Output = Result<Vec<Notification>>> + Send {
+        unimplemented_stub::<Vec<Notification>>()
+    }
+
+    /// Implements [crate::client::Storage::delete_notification].
+    fn delete_notification(
+        &self,
+        _bucket: String,
+        _notification_id: String,
+        _options: RequestOptions,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        unimplemented_stub::<()>()
     }
 }
 
