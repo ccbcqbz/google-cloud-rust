@@ -325,6 +325,114 @@ impl super::stub::Storage for Storage {
         }
         self.open_object_plain(request, options).await
     }
+
+    async fn create_notification(
+        &self,
+        bucket: &str,
+        topic: &str,
+        options: crate::notification::CreateNotificationOptions,
+    ) -> Result<crate::notification::Notification> {
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").unwrap_or(bucket);
+        let path = format!("/storage/v1/b/{}/notificationConfigs", bucket_id);
+        let req = crate::storage::notification::CreateNotificationRequest {
+            topic,
+            event_types: options.event_types,
+            custom_attributes: options.custom_attributes,
+            object_name_prefix: options.object_name_prefix,
+            payload_format: options.payload_format,
+        };
+        let body = serde_json::to_string(&req).map_err(crate::Error::ser)?;
+        let builder = self
+            .inner
+            .client
+            .http_builder(gaxi::http::reqwest::Method::POST, &path)
+            .header("content-type", "application/json")
+            .body(body);
+        let options = self.inner.options.gax();
+        let response = builder
+            .send(options, gaxi::attempt_info::AttemptInfo::new(0))
+            .await?;
+        if !response.status().is_success() {
+            return gaxi::http::to_http_error(response).await;
+        }
+        let notification = response
+            .json::<crate::notification::Notification>()
+            .await
+            .map_err(crate::Error::deser)?;
+        Ok(notification)
+    }
+
+    async fn get_notification(
+        &self,
+        bucket: &str,
+        notification_id: &str,
+    ) -> Result<crate::notification::Notification> {
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").unwrap_or(bucket);
+        let path = format!(
+            "/storage/v1/b/{}/notificationConfigs/{}",
+            bucket_id, notification_id
+        );
+        let builder = self
+            .inner
+            .client
+            .http_builder(gaxi::http::reqwest::Method::GET, &path);
+        let options = self.inner.options.gax();
+        let response = builder
+            .send(options, gaxi::attempt_info::AttemptInfo::new(0))
+            .await?;
+        if !response.status().is_success() {
+            return gaxi::http::to_http_error(response).await;
+        }
+        let notification = response
+            .json::<crate::notification::Notification>()
+            .await
+            .map_err(crate::Error::deser)?;
+        Ok(notification)
+    }
+
+    async fn list_notifications(
+        &self,
+        bucket: &str,
+    ) -> Result<Vec<crate::notification::Notification>> {
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").unwrap_or(bucket);
+        let path = format!("/storage/v1/b/{}/notificationConfigs", bucket_id);
+        let builder = self
+            .inner
+            .client
+            .http_builder(gaxi::http::reqwest::Method::GET, &path);
+        let options = self.inner.options.gax();
+        let response = builder
+            .send(options, gaxi::attempt_info::AttemptInfo::new(0))
+            .await?;
+        if !response.status().is_success() {
+            return gaxi::http::to_http_error(response).await;
+        }
+        let list_resp = response
+            .json::<crate::storage::notification::ListNotificationsResponse>()
+            .await
+            .map_err(crate::Error::deser)?;
+        Ok(list_resp.items.unwrap_or_default())
+    }
+
+    async fn delete_notification(&self, bucket: &str, notification_id: &str) -> Result<()> {
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").unwrap_or(bucket);
+        let path = format!(
+            "/storage/v1/b/{}/notificationConfigs/{}",
+            bucket_id, notification_id
+        );
+        let builder = self
+            .inner
+            .client
+            .http_builder(gaxi::http::reqwest::Method::DELETE, &path);
+        let options = self.inner.options.gax();
+        let response = builder
+            .send(options, gaxi::attempt_info::AttemptInfo::new(0))
+            .await?;
+        if !response.status().is_success() {
+            return gaxi::http::to_http_error(response).await;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

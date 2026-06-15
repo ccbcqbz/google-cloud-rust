@@ -81,6 +81,43 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
     {
         unimplemented_stub::<(Descriptor, Vec<ReadObjectResponse>)>()
     }
+
+    /// Implements [crate::client::Storage::create_notification].
+    fn create_notification(
+        &self,
+        _bucket: &str,
+        _topic: &str,
+        _options: crate::notification::CreateNotificationOptions,
+    ) -> impl std::future::Future<Output = Result<crate::notification::Notification>> + Send {
+        unimplemented_stub::<crate::notification::Notification>()
+    }
+
+    /// Implements [crate::client::Storage::get_notification].
+    fn get_notification(
+        &self,
+        _bucket: &str,
+        _notification_id: &str,
+    ) -> impl std::future::Future<Output = Result<crate::notification::Notification>> + Send {
+        unimplemented_stub::<crate::notification::Notification>()
+    }
+
+    /// Implements [crate::client::Storage::list_notifications].
+    fn list_notifications(
+        &self,
+        _bucket: &str,
+    ) -> impl std::future::Future<Output = Result<Vec<crate::notification::Notification>>> + Send
+    {
+        unimplemented_stub::<Vec<crate::notification::Notification>>()
+    }
+
+    /// Implements [crate::client::Storage::delete_notification].
+    fn delete_notification(
+        &self,
+        _bucket: &str,
+        _notification_id: &str,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        unimplemented_stub::<()>()
+    }
 }
 
 /// Defines the trait used to implement [crate::object_descriptor::ObjectDescriptor].
