@@ -449,3 +449,54 @@ pub fn retry_policy() -> impl google_cloud_gax::retry_policy::RetryPolicy {
         .with_time_limit(Duration::from_secs(15))
         .with_attempt_limit(5)
 }
+
+pub async fn notifications(
+    storage_builder: StorageBuilder,
+    bucket_name: &str,
+) -> Result<()> {
+    let (topic_admin, topic) = pubsub_samples::create_test_topic().await?;
+    let client = storage_builder.build().await?;
+
+    let result: Result<()> = async {
+        let mut options = google_cloud_storage::notification::CreateNotificationOptions::default();
+        options.payload_format = Some(
+            google_cloud_storage::notification::PAYLOAD_FORMAT_JSON_API_V1.to_string(),
+        );
+        options.event_types = Some(vec![
+            google_cloud_storage::notification::EVENT_OBJECT_FINALIZE.to_string(),
+        ]);
+
+        println!("\nTesting create_notification()");
+        let created = client
+            .create_notification(bucket_name, &topic.name, options)
+            .await?;
+        println!("SUCCESS on create_notification: {created:?}");
+        let expected_topic = format!("//pubsub.googleapis.com/{}", topic.name);
+        assert_eq!(created.topic, expected_topic);
+
+        println!("\nTesting get_notification()");
+        let fetched = client
+            .get_notification(bucket_name, &created.id)
+            .await?;
+        println!("SUCCESS on get_notification: {fetched:?}");
+        assert_eq!(fetched, created);
+
+        println!("\nTesting list_notifications()");
+        let list = client.list_notifications(bucket_name).await?;
+        println!("SUCCESS on list_notifications: {list:?}");
+        assert!(list.contains(&created));
+
+        println!("\nTesting delete_notification()");
+        client.delete_notification(bucket_name, &created.id).await?;
+        println!("SUCCESS on delete_notification");
+
+        let list = client.list_notifications(bucket_name).await?;
+        assert!(!list.iter().any(|n| n.id == created.id));
+
+        Ok(())
+    }
+    .await;
+
+    let _ = pubsub_samples::cleanup_test_topic(&topic_admin, &topic.name).await;
+    result
+}
