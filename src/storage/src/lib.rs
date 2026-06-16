@@ -63,6 +63,7 @@ pub mod retry_policy;
 pub mod signed_url;
 pub use crate::storage::request_options;
 pub use crate::storage::streaming_source;
+/// Types and constants for GCS Bucket Pub/Sub Notifications.
 pub mod notification {
     pub use crate::storage::notification::*;
 }

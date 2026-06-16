@@ -332,7 +332,11 @@ impl super::stub::Storage for Storage {
         topic: &str,
         options: crate::notification::CreateNotificationOptions,
     ) -> Result<crate::notification::Notification> {
-        let bucket_id = bucket.strip_prefix("projects/_/buckets/").unwrap_or(bucket);
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+            crate::Error::binding(format!(
+                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+            ))
+        })?;
         let path = format!("/storage/v1/b/{}/notificationConfigs", bucket_id);
         let req = crate::storage::notification::CreateNotificationRequest {
             topic,
@@ -367,7 +371,11 @@ impl super::stub::Storage for Storage {
         bucket: &str,
         notification_id: &str,
     ) -> Result<crate::notification::Notification> {
-        let bucket_id = bucket.strip_prefix("projects/_/buckets/").unwrap_or(bucket);
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+            crate::Error::binding(format!(
+                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+            ))
+        })?;
         let path = format!(
             "/storage/v1/b/{}/notificationConfigs/{}",
             bucket_id, notification_id
@@ -394,7 +402,11 @@ impl super::stub::Storage for Storage {
         &self,
         bucket: &str,
     ) -> Result<Vec<crate::notification::Notification>> {
-        let bucket_id = bucket.strip_prefix("projects/_/buckets/").unwrap_or(bucket);
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+            crate::Error::binding(format!(
+                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+            ))
+        })?;
         let path = format!("/storage/v1/b/{}/notificationConfigs", bucket_id);
         let builder = self
             .inner
@@ -415,7 +427,11 @@ impl super::stub::Storage for Storage {
     }
 
     async fn delete_notification(&self, bucket: &str, notification_id: &str) -> Result<()> {
-        let bucket_id = bucket.strip_prefix("projects/_/buckets/").unwrap_or(bucket);
+        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+            crate::Error::binding(format!(
+                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+            ))
+        })?;
         let path = format!(
             "/storage/v1/b/{}/notificationConfigs/{}",
             bucket_id, notification_id
@@ -762,6 +778,153 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!("missing `read_range` span for ReadRange::tail(15): {range_spans:#?}")
             });
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn notification_lifecycle() -> anyhow::Result<()> {
+        let server = Server::run();
+        
+        let mock_notification = crate::notification::Notification {
+            id: "123".to_string(),
+            topic: "//pubsub.googleapis.com/projects/test-project/topics/test-topic".to_string(),
+            kind: Some("storage#notification".to_string()),
+            self_link: Some("https://storage.googleapis.com/storage/v1/b/test-bucket/notificationConfigs/123".to_string()),
+            event_types: Some(vec!["OBJECT_FINALIZE".to_string()]),
+            custom_attributes: Some(std::collections::HashMap::from([
+                ("key".to_string(), "value".to_string()),
+            ])),
+            object_name_prefix: Some("prefix/".to_string()),
+            payload_format: Some("JSON_API_V1".to_string()),
+        };
+
+        // Mock Create
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", "/storage/v1/b/test-bucket/notificationConfigs"),
+                request::body(json_decoded(eq(serde_json::json!({
+                    "topic": "//pubsub.googleapis.com/projects/test-project/topics/test-topic",
+                    "eventTypes": ["OBJECT_FINALIZE"],
+                    "customAttributes": {"key": "value"},
+                    "objectNamePrefix": "prefix/",
+                    "payloadFormat": "JSON_API_V1"
+                })))),
+            ])
+            .respond_with(
+                status_code(200)
+                    .append_header("content-type", "application/json")
+                    .body(serde_json::to_string(&mock_notification)?),
+            ),
+        );
+
+        // Mock Get
+        server.expect(
+            Expectation::matching(request::method_path(
+                "GET",
+                "/storage/v1/b/test-bucket/notificationConfigs/123",
+            ))
+            .respond_with(
+                status_code(200)
+                    .append_header("content-type", "application/json")
+                    .body(serde_json::to_string(&mock_notification)?),
+            ),
+        );
+
+        // Mock List
+        let mock_list = crate::storage::notification::ListNotificationsResponse {
+            items: Some(vec![mock_notification.clone()]),
+        };
+        server.expect(
+            Expectation::matching(request::method_path(
+                "GET",
+                "/storage/v1/b/test-bucket/notificationConfigs",
+            ))
+            .respond_with(
+                status_code(200)
+                    .append_header("content-type", "application/json")
+                    .body(serde_json::to_string(&mock_list)?),
+            ),
+        );
+
+        // Mock Delete
+        server.expect(
+            Expectation::matching(request::method_path(
+                "DELETE",
+                "/storage/v1/b/test-bucket/notificationConfigs/123",
+            ))
+            .respond_with(status_code(204)),
+        );
+
+        let client = crate::client::Storage::builder()
+            .with_endpoint(format!("http://{}", server.addr()))
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+
+        // Test Create
+        let options = crate::notification::CreateNotificationOptions {
+            event_types: Some(vec!["OBJECT_FINALIZE".to_string()]),
+            custom_attributes: Some(std::collections::HashMap::from([
+                ("key".to_string(), "value".to_string()),
+            ])),
+            object_name_prefix: Some("prefix/".to_string()),
+            payload_format: Some("JSON_API_V1".to_string()),
+        };
+        let created = client
+            .create_notification(
+                "projects/_/buckets/test-bucket",
+                "//pubsub.googleapis.com/projects/test-project/topics/test-topic",
+                options,
+            )
+            .await?;
+        assert_eq!(created, mock_notification);
+
+        // Test Get
+        let fetched = client
+            .get_notification("projects/_/buckets/test-bucket", "123")
+            .await?;
+        assert_eq!(fetched, mock_notification);
+
+        // Test List
+        let list = client
+            .list_notifications("projects/_/buckets/test-bucket")
+            .await?;
+        assert_eq!(list, vec![mock_notification]);
+
+        // Test Delete
+        client
+            .delete_notification("projects/_/buckets/test-bucket", "123")
+            .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn notification_malformed_bucket() -> anyhow::Result<()> {
+        let client = crate::client::Storage::builder()
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+
+        let res = client
+            .create_notification(
+                "test-bucket",
+                "topic",
+                crate::notification::CreateNotificationOptions::default(),
+            )
+            .await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("malformed bucket name"));
+
+        let res = client.get_notification("test-bucket", "123").await;
+        assert!(res.is_err());
+
+        let res = client.list_notifications("test-bucket").await;
+        assert!(res.is_err());
+
+        let res = client.delete_notification("test-bucket", "123").await;
+        assert!(res.is_err());
+
         Ok(())
     }
 
