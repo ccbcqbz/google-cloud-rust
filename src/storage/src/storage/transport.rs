@@ -341,7 +341,13 @@ impl super::stub::Storage for Storage {
         upload.start_resumable_upload_attempt(0).await
     }
 
-    async fn delete_upload_session(&self, bucket: &str, upload_id: &str) -> Result<()> {
+    async fn delete_upload_session<B, U>(&self, bucket: B, upload_id: U) -> Result<()>
+    where
+        B: Into<String> + Send,
+        U: Into<String> + Send,
+    {
+        let bucket = bucket.into();
+        let upload_id = upload_id.into();
         let options = self.inner.options.gax();
         let options = options
             .insert_extension(google_cloud_gax::options::internal::PathTemplate(
@@ -355,7 +361,7 @@ impl super::stub::Storage for Storage {
             .client
             .http_builder_with_url(
                 gaxi::http::reqwest::Method::DELETE,
-                upload_id,
+                &upload_id,
                 crate::storage::DEFAULT_HOST,
             )?
             .header(

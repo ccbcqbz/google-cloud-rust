@@ -61,3 +61,4 @@ pub mod stream_file_upload;
 pub mod upload_encrypted_file;
 pub mod upload_file;
 pub mod upload_with_kms_key;
+pub mod manual_resumable_upload;

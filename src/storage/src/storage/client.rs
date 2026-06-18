@@ -278,10 +278,14 @@ where
     }
 
     /// Starts a resumable upload session on GCS, returning the upload session ID/URI.
-    pub async fn start_upload(&self, bucket: &str, object: &str) -> crate::Result<String> {
+    pub async fn start_upload<B, O>(&self, bucket: B, object: O) -> crate::Result<String>
+    where
+        B: Into<String>,
+        O: Into<String>,
+    {
         let resource = crate::model::Object::new()
-            .set_bucket(bucket)
-            .set_name(object);
+            .set_bucket(bucket.into())
+            .set_name(object.into());
         let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
         let request = WriteObjectRequest {
             spec,
@@ -317,8 +321,12 @@ where
     }
 
     /// Deletes/cancels an active GCS resumable upload session.
-    pub async fn delete_upload_session(&self, bucket: &str, upload_id: &str) -> crate::Result<()> {
-        self.stub.delete_upload_session(bucket, upload_id).await
+    pub async fn delete_upload_session<B, U>(&self, bucket: B, upload_id: U) -> crate::Result<()>
+    where
+        B: Into<String>,
+        U: Into<String>,
+    {
+        self.stub.delete_upload_session(bucket.into(), upload_id.into()).await
     }
 }
 

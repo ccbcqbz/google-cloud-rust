@@ -91,11 +91,17 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
     }
 
     /// Implements [crate::client::Storage::delete_upload_session].
-    fn delete_upload_session(
+    fn delete_upload_session<B, U>(
         &self,
-        _bucket: &str,
-        _upload_id: &str,
-    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        bucket: B,
+        upload_id: U,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        B: Into<String> + Send,
+        U: Into<String> + Send,
+    {
+        let _ = bucket;
+        let _ = upload_id;
         unimplemented_stub::<()>()
     }
 }
