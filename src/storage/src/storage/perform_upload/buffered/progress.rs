@@ -118,23 +118,24 @@ impl InProgressUpload {
     where
         S: StreamingSource,
     {
+        let skip_from_chunk =
+            |mut chunk: bytes::Bytes,
+             skip_bytes: &mut u64,
+             remainder: &mut VecDeque<bytes::Bytes>| {
+                let len = chunk.len() as u64;
+                if len <= *skip_bytes {
+                    *skip_bytes -= len;
+                } else {
+                    remainder.push_front(chunk.split_off(*skip_bytes as usize));
+                    *skip_bytes = 0;
+                }
+            };
+
         while self.skip_bytes > 0 {
-            if let Some(mut b) = self.remainder.pop_front() {
-                let len = b.len() as u64;
-                if len <= self.skip_bytes {
-                    self.skip_bytes -= len;
-                } else {
-                    self.remainder.push_front(b.split_off(self.skip_bytes as usize));
-                    self.skip_bytes = 0;
-                }
-            } else if let Some(mut b) = payload.next().await.transpose().map_err(Error::ser)? {
-                let len = b.len() as u64;
-                if len <= self.skip_bytes {
-                    self.skip_bytes -= len;
-                } else {
-                    self.remainder.push_front(b.split_off(self.skip_bytes as usize));
-                    self.skip_bytes = 0;
-                }
+            if let Some(b) = self.remainder.pop_front() {
+                skip_from_chunk(b, &mut self.skip_bytes, &mut self.remainder);
+            } else if let Some(b) = payload.next().await.transpose().map_err(Error::ser)? {
+                skip_from_chunk(b, &mut self.skip_bytes, &mut self.remainder);
             } else {
                 return Err(Error::ser(WriteError::UnexpectedRewind {
                     offset: self.offset,

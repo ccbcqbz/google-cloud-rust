@@ -908,9 +908,11 @@ async fn resumable_continue_with_upload_id_success() -> Result {
             request::headers(contains(("content-range", "bytes 256-999/1000"))),
         ])
         .times(1)
-        .respond_with(status_code(200)
-            .append_header("content-type", "application/json")
-            .body(response_body().to_string())),
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
     );
 
     let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);
@@ -937,11 +939,9 @@ async fn resumable_delete_session_success() -> Result {
     let path = session.path().to_string();
 
     server.expect(
-        Expectation::matching(all_of![
-            request::method_path("DELETE", path.clone()),
-        ])
-        .times(1)
-        .respond_with(status_code(499)),
+        Expectation::matching(all_of![request::method_path("DELETE", path.clone()),])
+            .times(1)
+            .respond_with(status_code(499)),
     );
 
     let client = test_builder()

@@ -85,8 +85,7 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
     /// Implements [crate::client::Storage::start_upload].
     fn start_upload(
         &self,
-        _bucket: &str,
-        _object: &str,
+        _request: WriteObjectRequest,
     ) -> impl std::future::Future<Output = Result<String>> + Send {
         unimplemented_stub::<String>()
     }

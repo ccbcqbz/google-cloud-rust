@@ -22,13 +22,13 @@ use crate::storage::info::INSTRUMENTATION;
 use crate::storage::perform_upload::PerformUpload;
 use crate::storage::read_object::Reader;
 use crate::storage::request_options::RequestOptions;
-use google_cloud_gax::options::internal::RequestOptionsExt;
 use crate::storage::streaming_source::{Seek, StreamingSource};
 use crate::{
     model_ext::OpenObjectRequest, object_descriptor::ObjectDescriptor,
     storage::bidi::connector::Connector, storage::bidi::transport::ObjectDescriptorTransport,
 };
 use gaxi::observability::{ClientRequestAttributes, DurationMetric, RequestRecorder};
+use google_cloud_gax::options::internal::RequestOptionsExt;
 use std::sync::Arc;
 
 /// An implementation of [`stub::Storage`][crate::storage::stub::Storage] that
@@ -329,51 +329,47 @@ impl super::stub::Storage for Storage {
         self.open_object_plain(request, options).await
     }
 
-    async fn start_upload(
-        &self,
-        bucket: &str,
-        object: &str,
-    ) -> Result<String> {
-        let resource = crate::model::Object::new()
-            .set_bucket(bucket)
-            .set_name(object);
-        let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
+    async fn start_upload(&self, request: WriteObjectRequest) -> Result<String> {
         let upload = PerformUpload::new(
             "",
             self.inner.clone(),
-            spec,
-            None,
+            request.spec,
+            request.params,
             self.inner.options.clone(),
             None,
         );
         upload.start_resumable_upload_attempt(0).await
     }
 
-    async fn delete_upload_session(
-        &self,
-        bucket: &str,
-        upload_id: &str,
-    ) -> Result<()> {
+    async fn delete_upload_session(&self, bucket: &str, upload_id: &str) -> Result<()> {
         let options = self.inner.options.gax();
         let options = options
-            .insert_extension(google_cloud_gax::options::internal::PathTemplate("/upload/storage/v1/b/{bucket}/o"))
+            .insert_extension(google_cloud_gax::options::internal::PathTemplate(
+                "/upload/storage/v1/b/{bucket}/o",
+            ))
             .insert_extension(google_cloud_gax::options::internal::ResourceName(format!(
                 "//storage.googleapis.com/{bucket}",
             )));
         let builder = self
             .inner
             .client
-            .http_builder_with_url(gaxi::http::reqwest::Method::DELETE, upload_id, crate::storage::DEFAULT_HOST)?
+            .http_builder_with_url(
+                gaxi::http::reqwest::Method::DELETE,
+                upload_id,
+                crate::storage::DEFAULT_HOST,
+            )?
             .header(
                 "x-goog-api-client",
-                gaxi::http::reqwest::HeaderValue::from_static(&crate::storage::info::X_GOOG_API_CLIENT_HEADER),
+                gaxi::http::reqwest::HeaderValue::from_static(
+                    &crate::storage::info::X_GOOG_API_CLIENT_HEADER,
+                ),
             );
         let response = builder
             .send(options, gaxi::attempt_info::AttemptInfo::new(0))
             .await
             .map_err(crate::Error::io)?;
         // GCS returns 499 for deleted/cancelled resumable uploads.
-        if response.status() == gaxi::http::reqwest::StatusCode::from_u16(499).unwrap() || response.status().is_success() {
+        if response.status().as_u16() == 499 || response.status().is_success() {
             Ok(())
         } else {
             gaxi::http::to_http_error(response).await
@@ -383,7 +379,7 @@ impl super::stub::Storage for Storage {
 
 #[cfg(test)]
 mod tests {
-    use super::{Storage, StorageInner};
+    use super::{Storage, StorageInner, WriteObjectRequest};
     use google_cloud_auth::credentials::anonymous::Builder as Anonymous;
     use google_cloud_test_utils::test_layer::AttributeValue;
     use google_cloud_test_utils::test_layer::{CapturedSpan, TestLayer};
@@ -708,6 +704,75 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!("missing `read_range` span for ReadRange::tail(15): {range_spans:#?}")
             });
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_upload_success() -> anyhow::Result<()> {
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+                request::query(url_decoded(contains(("uploadType", "resumable")))),
+                request::query(url_decoded(contains(("name", "test-object")))),
+            ])
+            .respond_with(status_code(200).append_header(
+                "Location",
+                "http://private.googleapis.com/test-only/session-123",
+            )),
+        );
+
+        let client = crate::client::Storage::builder()
+            .with_endpoint(format!("http://{}", server.addr()))
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+        let response = client
+            .start_upload("projects/_/buckets/test-bucket", "test-object")
+            .await?;
+        assert_eq!(
+            response,
+            "http://private.googleapis.com/test-only/session-123"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_upload_with_request_success() -> anyhow::Result<()> {
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+                request::query(url_decoded(contains(("uploadType", "resumable")))),
+                request::query(url_decoded(contains(("name", "test-object")))),
+            ])
+            .respond_with(status_code(200).append_header(
+                "Location",
+                "http://private.googleapis.com/test-only/session-123",
+            )),
+        );
+
+        let client = crate::client::Storage::builder()
+            .with_endpoint(format!("http://{}", server.addr()))
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+
+        let resource = crate::model::Object::new()
+            .set_bucket("projects/_/buckets/test-bucket")
+            .set_name("test-object")
+            .set_content_type("application/json");
+        let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
+        let request = WriteObjectRequest {
+            spec,
+            params: None,
+            upload_id: None,
+        };
+        let response = client.start_upload_with_request(request).await?;
+        assert_eq!(
+            response,
+            "http://private.googleapis.com/test-only/session-123"
+        );
         Ok(())
     }
 

@@ -73,7 +73,10 @@ impl<S> PerformUpload<S> {
             .expect("resource field initialized in `new()`")
     }
 
-    pub(crate) async fn start_resumable_upload_attempt(&self, attempt_count: u32) -> Result<String> {
+    pub(crate) async fn start_resumable_upload_attempt(
+        &self,
+        attempt_count: u32,
+    ) -> Result<String> {
         let builder = self.start_resumable_upload_request().await?;
         let options = self.options.gax();
         let options = options

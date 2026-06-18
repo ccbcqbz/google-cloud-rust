@@ -819,9 +819,11 @@ async fn resumable_continue_with_upload_id_success() -> Result {
             request::headers(contains(("content-range", "bytes 256-999/1000"))),
         ])
         .times(1)
-        .respond_with(status_code(200)
-            .append_header("content-type", "application/json")
-            .body(response_body().to_string())),
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
     );
 
     let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);

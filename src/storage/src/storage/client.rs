@@ -15,6 +15,7 @@
 use super::request_options::RequestOptions;
 use crate::builder::storage::ReadObject;
 use crate::builder::storage::WriteObject;
+use crate::model_ext::WriteObjectRequest;
 use crate::read_resume_policy::ReadResumePolicy;
 use crate::storage::bidi::OpenObject;
 use crate::storage::common_options::CommonOptions;
@@ -278,17 +279,41 @@ where
 
     /// Starts a resumable upload session on GCS, returning the upload session ID/URI.
     pub async fn start_upload(&self, bucket: &str, object: &str) -> crate::Result<String> {
-        self.stub.start_upload(bucket, object).await
+        let resource = crate::model::Object::new()
+            .set_bucket(bucket)
+            .set_name(object);
+        let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
+        let request = WriteObjectRequest {
+            spec,
+            params: None,
+            upload_id: None,
+        };
+        self.start_upload_with_request(request).await
+    }
+
+    /// Starts a resumable upload session on GCS with a full `WriteObjectRequest`, returning the upload session ID/URI.
+    pub async fn start_upload_with_request(
+        &self,
+        request: WriteObjectRequest,
+    ) -> crate::Result<String> {
+        self.stub.start_upload(request).await
     }
 
     /// Continues an interrupted resumable upload session using its upload session ID/URI.
-    pub fn continue_upload<B, O, T, P>(&self, bucket: B, object: O, upload_id: String, payload: T) -> WriteObject<P, S>
+    pub fn continue_upload<B, O, T, P>(
+        &self,
+        bucket: B,
+        object: O,
+        upload_id: String,
+        payload: T,
+    ) -> WriteObject<P, S>
     where
         B: Into<String>,
         O: Into<String>,
         T: Into<Payload<P>>,
     {
-        self.write_object(bucket, object, payload).with_upload_id(upload_id)
+        self.write_object(bucket, object, payload)
+            .with_upload_id(upload_id)
     }
 
     /// Deletes/cancels an active GCS resumable upload session.
