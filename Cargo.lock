@@ -6240,6 +6240,7 @@ dependencies = [
  "google-cloud-test-utils",
  "google-cloud-wkt",
  "http",
+ "pubsub-samples",
  "reqwest 0.13.4",
  "storage-samples",
  "test-case",

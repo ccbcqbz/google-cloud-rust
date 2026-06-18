@@ -89,6 +89,12 @@ mod storage {
                 .await
                 .inspect_err(anydump)?;
 
+            tracing::info!("bucket notifications");
+            let builder = Storage::builder();
+            integration_tests_storage::notifications(builder, &bucket.name)
+                .await
+                .inspect_err(anydump)?;
+
             Ok(())
         };
 

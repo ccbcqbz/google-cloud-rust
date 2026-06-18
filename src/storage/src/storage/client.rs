@@ -275,6 +275,42 @@ where
     {
         OpenObject::new(self.stub.clone(), bucket, object, self.options.clone())
     }
+
+    /// Creates a new bucket notification configuration.
+    pub async fn create_notification(
+        &self,
+        bucket: &str,
+        topic: &str,
+        options: crate::notification::CreateNotificationOptions,
+    ) -> crate::Result<crate::notification::Notification> {
+        self.stub.create_notification(bucket, topic, options).await
+    }
+
+    /// Gets an existing bucket notification configuration.
+    pub async fn get_notification(
+        &self,
+        bucket: &str,
+        notification_id: &str,
+    ) -> crate::Result<crate::notification::Notification> {
+        self.stub.get_notification(bucket, notification_id).await
+    }
+
+    /// Lists all notification configurations for a bucket.
+    pub async fn list_notifications(
+        &self,
+        bucket: &str,
+    ) -> crate::Result<Vec<crate::notification::Notification>> {
+        self.stub.list_notifications(bucket).await
+    }
+
+    /// Deletes a bucket notification configuration.
+    pub async fn delete_notification(
+        &self,
+        bucket: &str,
+        notification_id: &str,
+    ) -> crate::Result<()> {
+        self.stub.delete_notification(bucket, notification_id).await
+    }
 }
 
 impl Storage {
