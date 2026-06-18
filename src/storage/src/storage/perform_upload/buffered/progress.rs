@@ -47,6 +47,8 @@ pub struct InProgressUpload {
     remainder: VecDeque<bytes::Bytes>,
     /// Indicates if the source stream has ended.
     source_ended: bool,
+    /// The number of bytes to skip from the payload stream (used when resuming).
+    skip_bytes: u64,
 }
 
 struct Summary<'a>(&'a VecDeque<bytes::Bytes>);
@@ -116,6 +118,31 @@ impl InProgressUpload {
     where
         S: StreamingSource,
     {
+        while self.skip_bytes > 0 {
+            if let Some(mut b) = self.remainder.pop_front() {
+                let len = b.len() as u64;
+                if len <= self.skip_bytes {
+                    self.skip_bytes -= len;
+                } else {
+                    self.remainder.push_front(b.split_off(self.skip_bytes as usize));
+                    self.skip_bytes = 0;
+                }
+            } else if let Some(mut b) = payload.next().await.transpose().map_err(Error::ser)? {
+                let len = b.len() as u64;
+                if len <= self.skip_bytes {
+                    self.skip_bytes -= len;
+                } else {
+                    self.remainder.push_front(b.split_off(self.skip_bytes as usize));
+                    self.skip_bytes = 0;
+                }
+            } else {
+                return Err(Error::ser(WriteError::UnexpectedRewind {
+                    offset: self.offset,
+                    persisted: self.offset - self.skip_bytes,
+                }));
+            }
+        }
+
         let mut buffer = VecDeque::new();
         let mut size = 0;
         let mut process_buffer = |mut b: bytes::Bytes| match b.len() {
@@ -185,6 +212,12 @@ impl InProgressUpload {
     }
 
     pub fn handle_partial(&mut self, persisted_size: u64) -> Result<()> {
+        if self.offset == 0 && self.buffer_size == 0 {
+            self.persisted_size = Some(persisted_size);
+            self.offset = persisted_size;
+            self.skip_bytes = persisted_size;
+            return Ok(());
+        }
         let consumed = match (self.offset, self.buffer_size as u64, persisted_size) {
             (o, _, p) if p < o => Err(WriteError::UnexpectedRewind {
                 offset: o,

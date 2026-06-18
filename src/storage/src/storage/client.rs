@@ -275,6 +275,26 @@ where
     {
         OpenObject::new(self.stub.clone(), bucket, object, self.options.clone())
     }
+
+    /// Starts a resumable upload session on GCS, returning the upload session ID/URI.
+    pub async fn start_upload(&self, bucket: &str, object: &str) -> crate::Result<String> {
+        self.stub.start_upload(bucket, object).await
+    }
+
+    /// Continues an interrupted resumable upload session using its upload session ID/URI.
+    pub fn continue_upload<B, O, T, P>(&self, bucket: B, object: O, upload_id: String, payload: T) -> WriteObject<P, S>
+    where
+        B: Into<String>,
+        O: Into<String>,
+        T: Into<Payload<P>>,
+    {
+        self.write_object(bucket, object, payload).with_upload_id(upload_id)
+    }
+
+    /// Deletes/cancels an active GCS resumable upload session.
+    pub async fn delete_upload_session(&self, bucket: &str, upload_id: &str) -> crate::Result<()> {
+        self.stub.delete_upload_session(bucket, upload_id).await
+    }
 }
 
 impl Storage {

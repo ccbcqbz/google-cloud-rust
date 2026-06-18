@@ -43,6 +43,7 @@ pub struct PerformUpload<S> {
     spec: crate::model::WriteObjectSpec,
     params: Option<crate::model::CommonObjectRequestParams>,
     options: super::request_options::RequestOptions,
+    pub(crate) upload_id: Option<String>,
 }
 
 impl<S> PerformUpload<S> {
@@ -52,6 +53,7 @@ impl<S> PerformUpload<S> {
         spec: crate::model::WriteObjectSpec,
         params: Option<crate::model::CommonObjectRequestParams>,
         options: super::request_options::RequestOptions,
+        upload_id: Option<String>,
     ) -> Self {
         let checksum = options.checksum.clone();
         Self {
@@ -60,6 +62,7 @@ impl<S> PerformUpload<S> {
             spec,
             params,
             options,
+            upload_id,
         }
     }
 
@@ -70,7 +73,7 @@ impl<S> PerformUpload<S> {
             .expect("resource field initialized in `new()`")
     }
 
-    async fn start_resumable_upload_attempt(&self, attempt_count: u32) -> Result<String> {
+    pub(crate) async fn start_resumable_upload_attempt(&self, attempt_count: u32) -> Result<String> {
         let builder = self.start_resumable_upload_request().await?;
         let options = self.options.gax();
         let options = options

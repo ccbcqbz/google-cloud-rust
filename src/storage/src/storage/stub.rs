@@ -81,6 +81,24 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
     {
         unimplemented_stub::<(Descriptor, Vec<ReadObjectResponse>)>()
     }
+
+    /// Implements [crate::client::Storage::start_upload].
+    fn start_upload(
+        &self,
+        _bucket: &str,
+        _object: &str,
+    ) -> impl std::future::Future<Output = Result<String>> + Send {
+        unimplemented_stub::<String>()
+    }
+
+    /// Implements [crate::client::Storage::delete_upload_session].
+    fn delete_upload_session(
+        &self,
+        _bucket: &str,
+        _upload_id: &str,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        unimplemented_stub::<()>()
+    }
 }
 
 /// Defines the trait used to implement [crate::object_descriptor::ObjectDescriptor].

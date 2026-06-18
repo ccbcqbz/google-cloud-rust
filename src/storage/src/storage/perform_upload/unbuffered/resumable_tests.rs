@@ -883,3 +883,75 @@ async fn resumable_upload_handle_response_deser() -> Result {
     assert!(err.is_deserialization(), "{err:?}");
     Ok(())
 }
+
+#[tokio::test]
+async fn resumable_continue_with_upload_id_success() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-001");
+    let path = session.path().to_string();
+
+    // 1. The query status request
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(1)
+        .respond_with(status_code(308).append_header("range", "bytes=0-255")),
+    );
+
+    // 2. The PUT data request
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes 256-999/1000"))),
+        ])
+        .times(1)
+        .respond_with(status_code(200)
+            .append_header("content-type", "application/json")
+            .body(response_body().to_string())),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let response = client
+        .write_object("projects/_/buckets/test-bucket", "test-object", payload)
+        .with_upload_id(session.to_string())
+        .send_unbuffered()
+        .await?;
+
+    assert_eq!(response.name, "test-object");
+    Ok(())
+}
+
+#[tokio::test]
+async fn resumable_delete_session_success() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-001");
+    let path = session.path().to_string();
+
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("DELETE", path.clone()),
+        ])
+        .times(1)
+        .respond_with(status_code(499)),
+    );
+
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .build()
+        .await?;
+
+    client
+        .delete_upload_session("test-bucket", &session.to_string())
+        .await?;
+
+    Ok(())
+}

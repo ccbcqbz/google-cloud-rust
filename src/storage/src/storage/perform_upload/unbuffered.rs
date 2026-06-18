@@ -47,7 +47,7 @@ where
     }
 
     async fn send_unbuffered_resumable(self, hint: SizeHint) -> Result<Object> {
-        let mut upload_url = None;
+        let mut upload_url = self.upload_id.clone();
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let backoff = self.options.backoff_policy.clone();

@@ -55,7 +55,7 @@ where
 
     async fn send_buffered_resumable(self, hint: SizeHint) -> Result<Object> {
         let mut progress = InProgressUpload::new(self.options.resumable_upload_buffer_size(), hint);
-        let mut url = None;
+        let mut url = self.upload_id.clone();
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let backoff = self.options.backoff_policy.clone();
@@ -92,6 +92,10 @@ where
             let u = self.start_resumable_upload_attempt(attempt_count).await?;
             url.insert(u).as_str()
         };
+
+        if attempt_count == 0 && is_resume {
+            progress.handle_error();
+        }
 
         let mut is_partial_resume = false;
         if progress.needs_query() {
@@ -204,6 +208,7 @@ where
             spec: self.spec,
             params: self.params,
             options: self.options,
+            upload_id: None,
         };
         upload
             .send_unbuffered_single_shot(SizeHint::with_exact(exact))

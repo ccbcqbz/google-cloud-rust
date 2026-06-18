@@ -22,6 +22,7 @@ use crate::storage::info::INSTRUMENTATION;
 use crate::storage::perform_upload::PerformUpload;
 use crate::storage::read_object::Reader;
 use crate::storage::request_options::RequestOptions;
+use google_cloud_gax::options::internal::RequestOptionsExt;
 use crate::storage::streaming_source::{Seek, StreamingSource};
 use crate::{
     model_ext::OpenObjectRequest, object_descriptor::ObjectDescriptor,
@@ -117,6 +118,7 @@ impl Storage {
             request.spec,
             request.params,
             options,
+            request.upload_id,
         )
         .send()
         .await
@@ -174,6 +176,7 @@ impl Storage {
             request.spec,
             request.params,
             options,
+            request.upload_id,
         )
         .send_unbuffered()
         .await
@@ -324,6 +327,57 @@ impl super::stub::Storage for Storage {
             return self.open_object_tracing(request, options).await;
         }
         self.open_object_plain(request, options).await
+    }
+
+    async fn start_upload(
+        &self,
+        bucket: &str,
+        object: &str,
+    ) -> Result<String> {
+        let resource = crate::model::Object::new()
+            .set_bucket(bucket)
+            .set_name(object);
+        let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
+        let upload = PerformUpload::new(
+            "",
+            self.inner.clone(),
+            spec,
+            None,
+            self.inner.options.clone(),
+            None,
+        );
+        upload.start_resumable_upload_attempt(0).await
+    }
+
+    async fn delete_upload_session(
+        &self,
+        bucket: &str,
+        upload_id: &str,
+    ) -> Result<()> {
+        let options = self.inner.options.gax();
+        let options = options
+            .insert_extension(google_cloud_gax::options::internal::PathTemplate("/upload/storage/v1/b/{bucket}/o"))
+            .insert_extension(google_cloud_gax::options::internal::ResourceName(format!(
+                "//storage.googleapis.com/{bucket}",
+            )));
+        let builder = self
+            .inner
+            .client
+            .http_builder_with_url(gaxi::http::reqwest::Method::DELETE, upload_id, crate::storage::DEFAULT_HOST)?
+            .header(
+                "x-goog-api-client",
+                gaxi::http::reqwest::HeaderValue::from_static(&crate::storage::info::X_GOOG_API_CLIENT_HEADER),
+            );
+        let response = builder
+            .send(options, gaxi::attempt_info::AttemptInfo::new(0))
+            .await
+            .map_err(crate::Error::io)?;
+        // GCS returns 499 for deleted/cancelled resumable uploads.
+        if response.status() == gaxi::http::reqwest::StatusCode::from_u16(499).unwrap() || response.status().is_success() {
+            Ok(())
+        } else {
+            gaxi::http::to_http_error(response).await
+        }
     }
 }
 

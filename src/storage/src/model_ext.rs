@@ -314,6 +314,8 @@ pub struct WriteObjectRequest {
     pub spec: crate::model::WriteObjectSpec,
     /// Additional request parameters that are not part of the object attributes.
     pub params: Option<crate::model::CommonObjectRequestParams>,
+    /// The upload ID/session URI for resumable uploads.
+    pub upload_id: Option<String>,
 }
 
 #[cfg(google_cloud_unstable_storage_bidi)]

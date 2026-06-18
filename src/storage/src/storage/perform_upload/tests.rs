@@ -48,6 +48,7 @@ pub(crate) fn perform_upload<T>(
         builder.request.spec,
         builder.request.params,
         builder.options,
+        builder.upload_id,
     )
 }
 
