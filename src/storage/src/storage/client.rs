@@ -287,11 +287,7 @@ where
             .set_bucket(bucket.into())
             .set_name(object.into());
         let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
-        let request = WriteObjectRequest {
-            spec,
-            params: None,
-            upload_id: None,
-        };
+        let request = WriteObjectRequest { spec, params: None };
         self.start_upload_with_request(request).await
     }
 
@@ -304,6 +300,11 @@ where
     }
 
     /// Continues an interrupted resumable upload session using its upload session ID/URI.
+    ///
+    /// # Important
+    /// The caller must provide the complete payload starting from byte 0. The client library
+    /// automatically queries GCS for the current upload progress, seeks or skips the
+    /// already-persisted bytes, and resumes uploading from where it left off.
     pub fn continue_upload<B, O, T, P>(
         &self,
         bucket: B,
@@ -320,13 +321,18 @@ where
             .with_upload_id(upload_id)
     }
 
-    /// Deletes/cancels an active GCS resumable upload session.
-    pub async fn delete_upload_session<B, U>(&self, bucket: B, upload_id: U) -> crate::Result<()>
+    /// Cancels an active GCS resumable upload session.
+    ///
+    /// The `bucket` parameter is used for telemetry and routing metadata, while the
+    /// actual request is routed using the `upload_id` session URI.
+    pub async fn cancel_resumable_write<B, U>(&self, bucket: B, upload_id: U) -> crate::Result<()>
     where
         B: Into<String>,
         U: Into<String>,
     {
-        self.stub.delete_upload_session(bucket.into(), upload_id.into()).await
+        self.stub
+            .cancel_resumable_write(bucket.into(), upload_id.into())
+            .await
     }
 }
 

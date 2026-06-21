@@ -807,7 +807,7 @@ where
     }
 
     /// Sets the upload ID/session URI for resuming a resumable upload.
-    pub fn with_upload_id<V: Into<String>>(mut self, v: V) -> Self {
+    pub(crate) fn with_upload_id<V: Into<String>>(mut self, v: V) -> Self {
         self.upload_id = Some(v.into());
         self
     }
@@ -998,7 +998,6 @@ where
             request: crate::model_ext::WriteObjectRequest {
                 spec: crate::model::WriteObjectSpec::new().set_resource(resource),
                 params: None,
-                upload_id: None,
             },
             payload: payload.into(),
             options,
@@ -1028,10 +1027,8 @@ where
     /// # Ok(()) }
     /// ```
     pub async fn send_unbuffered(self) -> Result<Object> {
-        let mut request = self.request;
-        request.upload_id = self.upload_id;
         self.stub
-            .write_object_unbuffered(self.payload, request, self.options)
+            .write_object_unbuffered(self.payload, self.request, self.upload_id, self.options)
             .await
     }
 
@@ -1117,10 +1114,8 @@ where
     /// # Ok(()) }
     /// ```
     pub async fn send_buffered(self) -> crate::Result<Object> {
-        let mut request = self.request;
-        request.upload_id = self.upload_id;
         self.stub
-            .write_object_buffered(self.payload, request, self.options)
+            .write_object_buffered(self.payload, self.request, self.upload_id, self.options)
             .await
     }
 }

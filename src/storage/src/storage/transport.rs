@@ -107,6 +107,7 @@ impl Storage {
         &self,
         payload: P,
         request: WriteObjectRequest,
+        upload_id: Option<String>,
         options: RequestOptions,
     ) -> Result<Object>
     where
@@ -118,7 +119,7 @@ impl Storage {
             request.spec,
             request.params,
             options,
-            request.upload_id,
+            upload_id,
         )
         .send()
         .await
@@ -129,6 +130,7 @@ impl Storage {
         &self,
         payload: P,
         request: WriteObjectRequest,
+        upload_id: Option<String>,
         options: RequestOptions,
     ) -> Result<Object>
     where
@@ -155,7 +157,7 @@ impl Storage {
                             .set_resource_name(resource_name),
                     );
                 }
-                self.write_object_buffered_plain(payload, request, options).await
+                self.write_object_buffered_plain(payload, request, upload_id, options).await
             }
         );
         pending.await
@@ -165,6 +167,7 @@ impl Storage {
         &self,
         payload: P,
         request: WriteObjectRequest,
+        upload_id: Option<String>,
         options: RequestOptions,
     ) -> Result<Object>
     where
@@ -176,7 +179,7 @@ impl Storage {
             request.spec,
             request.params,
             options,
-            request.upload_id,
+            upload_id,
         )
         .send_unbuffered()
         .await
@@ -187,6 +190,7 @@ impl Storage {
         &self,
         payload: P,
         request: WriteObjectRequest,
+        upload_id: Option<String>,
         options: RequestOptions,
     ) -> Result<Object>
     where
@@ -213,7 +217,7 @@ impl Storage {
                             .set_resource_name(resource_name),
                     );
                 }
-                self.write_object_unbuffered_plain(payload, request, options).await
+                self.write_object_unbuffered_plain(payload, request, upload_id, options).await
             }
         );
         pending.await
@@ -285,6 +289,7 @@ impl super::stub::Storage for Storage {
         &self,
         payload: P,
         req: WriteObjectRequest,
+        upload_id: Option<String>,
         options: RequestOptions,
     ) -> Result<Object>
     where
@@ -292,10 +297,10 @@ impl super::stub::Storage for Storage {
     {
         if self.tracing {
             return self
-                .write_object_buffered_tracing(payload, req, options)
+                .write_object_buffered_tracing(payload, req, upload_id, options)
                 .await;
         }
-        self.write_object_buffered_plain(payload, req, options)
+        self.write_object_buffered_plain(payload, req, upload_id, options)
             .await
     }
 
@@ -304,6 +309,7 @@ impl super::stub::Storage for Storage {
         &self,
         payload: P,
         req: WriteObjectRequest,
+        upload_id: Option<String>,
         options: RequestOptions,
     ) -> Result<Object>
     where
@@ -311,10 +317,10 @@ impl super::stub::Storage for Storage {
     {
         if self.tracing {
             return self
-                .write_object_unbuffered_tracing(payload, req, options)
+                .write_object_unbuffered_tracing(payload, req, upload_id, options)
                 .await;
         }
-        self.write_object_unbuffered_plain(payload, req, options)
+        self.write_object_unbuffered_plain(payload, req, upload_id, options)
             .await
     }
 
@@ -329,25 +335,57 @@ impl super::stub::Storage for Storage {
         self.open_object_plain(request, options).await
     }
 
-    async fn start_upload(&self, request: WriteObjectRequest) -> Result<String> {
-        let upload = PerformUpload::new(
-            "",
+    fn start_upload(
+        &self,
+        request: WriteObjectRequest,
+    ) -> impl std::future::Future<Output = Result<String>> + Send {
+        let upload = Arc::new(PerformUpload::new(
+            crate::streaming_source::BytesSource::new(bytes::Bytes::new()),
             self.inner.clone(),
             request.spec,
             request.params,
             self.inner.options.clone(),
             None,
-        );
-        upload.start_resumable_upload_attempt(0).await
+        ));
+        let throttler = self.inner.options.retry_throttler.clone();
+        let retry = self.inner.options.retry_policy.clone();
+        let backoff = self.inner.options.backoff_policy.clone();
+        let mut count = 0;
+        let inner = async move |_| {
+            let attempt = count;
+            count += 1;
+            let upload = upload.clone();
+            upload.start_resumable_upload_attempt(attempt).await
+        };
+        async move {
+            google_cloud_gax::retry_loop_internal::retry_loop(
+                inner,
+                async |duration| tokio::time::sleep(duration).await,
+                true,
+                throttler,
+                retry,
+                backoff,
+            )
+            .await
+        }
     }
 
-    async fn delete_upload_session<B, U>(&self, bucket: B, upload_id: U) -> Result<()>
+    fn cancel_resumable_write<B, U>(
+        &self,
+        bucket: B,
+        upload_id: U,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         B: Into<String> + Send,
         U: Into<String> + Send,
     {
         let bucket = bucket.into();
         let upload_id = upload_id.into();
+        let throttler = self.inner.options.retry_throttler.clone();
+        let retry = self.inner.options.retry_policy.clone();
+        let backoff = self.inner.options.backoff_policy.clone();
+        let mut count = 0;
+        let client_clone = self.inner.client.clone();
         let options = self.inner.options.gax();
         let options = options
             .insert_extension(google_cloud_gax::options::internal::PathTemplate(
@@ -356,29 +394,45 @@ impl super::stub::Storage for Storage {
             .insert_extension(google_cloud_gax::options::internal::ResourceName(format!(
                 "//storage.googleapis.com/{bucket}",
             )));
-        let builder = self
-            .inner
-            .client
-            .http_builder_with_url(
-                gaxi::http::reqwest::Method::DELETE,
-                &upload_id,
-                crate::storage::DEFAULT_HOST,
-            )?
-            .header(
-                "x-goog-api-client",
-                gaxi::http::reqwest::HeaderValue::from_static(
-                    &crate::storage::info::X_GOOG_API_CLIENT_HEADER,
-                ),
-            );
-        let response = builder
-            .send(options, gaxi::attempt_info::AttemptInfo::new(0))
+        let inner = async move |_| {
+            let attempt = count;
+            count += 1;
+            let builder = client_clone
+                .http_builder_with_url(
+                    gaxi::http::reqwest::Method::DELETE,
+                    &upload_id,
+                    crate::storage::DEFAULT_HOST,
+                )?
+                .header(
+                    "x-goog-api-client",
+                    gaxi::http::reqwest::HeaderValue::from_static(
+                        &crate::storage::info::X_GOOG_API_CLIENT_HEADER,
+                    ),
+                );
+            let response = builder
+                .send(
+                    options.clone(),
+                    gaxi::attempt_info::AttemptInfo::new(attempt),
+                )
+                .await
+                .map_err(crate::Error::io)?;
+            // GCS returns 499 for deleted/cancelled resumable uploads.
+            if response.status().as_u16() == 499 || response.status().is_success() {
+                Ok(())
+            } else {
+                gaxi::http::to_http_error(response).await
+            }
+        };
+        async move {
+            google_cloud_gax::retry_loop_internal::retry_loop(
+                inner,
+                async |duration| tokio::time::sleep(duration).await,
+                true,
+                throttler,
+                retry,
+                backoff,
+            )
             .await
-            .map_err(crate::Error::io)?;
-        // GCS returns 499 for deleted/cancelled resumable uploads.
-        if response.status().as_u16() == 499 || response.status().is_success() {
-            Ok(())
-        } else {
-            gaxi::http::to_http_error(response).await
         }
     }
 }
@@ -769,11 +823,7 @@ mod tests {
             .set_name("test-object")
             .set_content_type("application/json");
         let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
-        let request = WriteObjectRequest {
-            spec,
-            params: None,
-            upload_id: None,
-        };
+        let request = WriteObjectRequest { spec, params: None };
         let response = client.start_upload_with_request(request).await?;
         assert_eq!(
             response,

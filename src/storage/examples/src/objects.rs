@@ -14,6 +14,7 @@
 
 #[allow(dead_code)]
 pub mod add_file_owner;
+pub mod application_resumable_upload;
 pub mod change_file_storage_class;
 pub mod compose_file;
 pub mod copy_file;
@@ -61,4 +62,3 @@ pub mod stream_file_upload;
 pub mod upload_encrypted_file;
 pub mod upload_file;
 pub mod upload_with_kms_key;
-pub mod manual_resumable_upload;

@@ -94,7 +94,7 @@ where
         };
 
         if attempt_count == 0 && is_resume {
-            progress.handle_error();
+            progress.initialize_resume();
         }
 
         let mut is_partial_resume = false;
@@ -131,7 +131,7 @@ where
             let response = builder.send(options, AttemptInfo::new(0)).await?;
             match super::query_resumable_upload_handle_response(response).await {
                 Err(e) => {
-                    progress.handle_error();
+                    progress.mark_needs_query();
                     return Err(e);
                 }
                 Ok(ResumableUploadStatus::Finalized(object)) => {

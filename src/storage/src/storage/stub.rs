@@ -51,6 +51,7 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
         &self,
         _payload: P,
         _req: WriteObjectRequest,
+        _upload_id: Option<String>,
         _options: RequestOptions,
     ) -> impl std::future::Future<Output = Result<Object>> + Send
     where
@@ -64,6 +65,7 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
         &self,
         _payload: P,
         _req: WriteObjectRequest,
+        _upload_id: Option<String>,
         _options: RequestOptions,
     ) -> impl std::future::Future<Output = Result<Object>> + Send
     where
@@ -90,8 +92,8 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
         unimplemented_stub::<String>()
     }
 
-    /// Implements [crate::client::Storage::delete_upload_session].
-    fn delete_upload_session<B, U>(
+    /// Implements [crate::client::Storage::cancel_resumable_write].
+    fn cancel_resumable_write<B, U>(
         &self,
         bucket: B,
         upload_id: U,

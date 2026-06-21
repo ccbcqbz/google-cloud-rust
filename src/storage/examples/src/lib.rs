@@ -370,8 +370,9 @@ pub async fn run_object_examples(buckets: &mut Vec<String>) -> anyhow::Result<()
     objects::stream_file_upload::sample(&client, &id).await?;
     tracing::info!("running stream_file_download example");
     objects::stream_file_download::sample(&client, &id).await?;
-    tracing::info!("running manual_resumable_upload example");
-    objects::manual_resumable_upload::sample(&client, &id, "manual-resumable-object.txt").await?;
+    tracing::info!("running application_resumable_upload example");
+    objects::application_resumable_upload::sample(&client, &id, "application-resumable-object.txt")
+        .await?;
 
     tracing::info!("create temp file for upload");
     let file_to_upload = tempfile::NamedTempFile::new()?;

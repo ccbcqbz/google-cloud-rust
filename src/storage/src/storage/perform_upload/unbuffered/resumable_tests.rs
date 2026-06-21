@@ -950,7 +950,7 @@ async fn resumable_delete_session_success() -> Result {
         .await?;
 
     client
-        .delete_upload_session("projects/_/buckets/test-bucket", &session.to_string())
+        .cancel_resumable_write("projects/_/buckets/test-bucket", &session.to_string())
         .await?;
 
     Ok(())

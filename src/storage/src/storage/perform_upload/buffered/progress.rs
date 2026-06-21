@@ -49,6 +49,8 @@ pub struct InProgressUpload {
     source_ended: bool,
     /// The number of bytes to skip from the payload stream (used when resuming).
     skip_bytes: u64,
+    /// Indicates if the next status query is the first status query for a resume.
+    initial_query: bool,
 }
 
 struct Summary<'a>(&'a VecDeque<bytes::Bytes>);
@@ -213,7 +215,8 @@ impl InProgressUpload {
     }
 
     pub fn handle_partial(&mut self, persisted_size: u64) -> Result<()> {
-        if self.offset == 0 && self.buffer_size == 0 {
+        if self.initial_query {
+            self.initial_query = false;
             self.persisted_size = Some(persisted_size);
             self.offset = persisted_size;
             self.skip_bytes = persisted_size;
@@ -254,7 +257,12 @@ impl InProgressUpload {
         Ok(())
     }
 
-    pub fn handle_error(&mut self) {
+    pub fn initialize_resume(&mut self) {
+        self.initial_query = true;
+        self.persisted_size = None;
+    }
+
+    pub fn mark_needs_query(&mut self) {
         self.persisted_size = None;
     }
 }
@@ -713,11 +721,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_error() -> Result {
+    async fn test_mark_needs_query() -> Result {
         let mut payload = Payload::from("");
         let mut upload = InProgressUpload::fake(0);
         upload.next_buffer(&mut payload).await?;
-        upload.handle_error();
+        upload.mark_needs_query();
         assert!(upload.needs_query(), "{upload:?}");
         Ok(())
     }
