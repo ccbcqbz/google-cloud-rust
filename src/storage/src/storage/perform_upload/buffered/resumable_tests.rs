@@ -985,7 +985,7 @@ async fn buffered_resumable_continue_already_completed() -> Result {
 }
 
 #[tokio::test]
-async fn cancel_resumable_write_error() -> Result {
+async fn buffered_cancel_resumable_write_error() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-cancel-error");
     let path = session.path().to_string();

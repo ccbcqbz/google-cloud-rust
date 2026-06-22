@@ -942,7 +942,7 @@ async fn unbuffered_resumable_continue_with_upload_id_success() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_delete_session_success() -> Result {
+async fn unbuffered_resumable_delete_session_success() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-001");
     let path = session.path().to_string();
@@ -1105,7 +1105,7 @@ async fn unbuffered_resumable_continue_no_progress() -> Result {
 }
 
 #[tokio::test]
-async fn cancel_resumable_write_retry() -> Result {
+async fn unbuffered_cancel_resumable_write_retry() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-cancel-retry");
     let path = session.path().to_string();

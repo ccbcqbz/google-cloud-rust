@@ -48,6 +48,9 @@ where
     }
 
     async fn send_unbuffered_resumable(self, hint: SizeHint) -> Result<Object> {
+        // Unlike the buffered path, we do not need to initialize progress tracking state
+        // (like `mark_as_resuming`) because the unbuffered path uses seekable payloads (impl Seek)
+        // and seeks the stream directly to the resume offset in `resumable_attempt`.
         let mut upload_url = self.upload_id().map(String::from);
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));

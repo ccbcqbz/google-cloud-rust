@@ -349,12 +349,12 @@ impl super::stub::Storage for Storage {
         let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
         let inner_count = count.clone();
         // The closure captures `spec` and `params` by value (async move).
-        // Since `WriteObjectSpec` and `CommonObjectRequestParams` are `Send + 'static`,
-        // and the retry loop runs the returned futures sequentially (never concurrently),
-        // this is thread-safe and compile-safe.
-        // If the retry loop is ever changed to run attempts concurrently, this would break.
+        // To ensure the returned future has a 'static lifetime and does not borrow from
+        // the closure's environment, we clone `spec` and `params` inside the async block.
         let inner = async move |_| {
             let attempt = inner_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let spec = spec.clone();
+            let params = params.clone();
             crate::storage::perform_upload::start_resumable_upload_attempt(
                 &inner_client,
                 &spec,
@@ -385,51 +385,51 @@ impl super::stub::Storage for Storage {
         let throttler = self.inner.options.retry_throttler.clone();
         let retry = self.inner.options.retry_policy.clone();
         let backoff = self.inner.options.backoff_policy.clone();
-        let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let inner_count = count.clone();
-        let client_clone = self.inner.client.clone();
-        let options = self.inner.options.gax();
-        let options = options
-            .insert_extension(google_cloud_gax::options::internal::PathTemplate(
-                "/upload/storage/v1/b/{bucket}/o",
-            ))
-            .insert_extension(google_cloud_gax::options::internal::ResourceName(format!(
-                "//storage.googleapis.com/{bucket}",
-            )));
-        let inner = async move |_| {
-            let attempt = inner_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let builder = client_clone
-                .http_builder_with_url(
-                    gaxi::http::reqwest::Method::DELETE,
-                    &upload_id,
-                    crate::storage::DEFAULT_HOST,
-                )?
-                .header(
-                    "x-goog-api-client",
-                    gaxi::http::reqwest::HeaderValue::from_static(
-                        &crate::storage::info::X_GOOG_API_CLIENT_HEADER,
-                    ),
-                );
-            let response = builder
-                .send(
-                    options.clone(),
-                    gaxi::attempt_info::AttemptInfo::new(attempt),
-                )
-                .await
-                .map_err(crate::Error::io)?;
-            // GCS returns 499 for deleted/cancelled resumable uploads.
-            if response.status().as_u16() == 499 || response.status().is_success() {
-                Ok(())
-            } else {
-                gaxi::http::to_http_error(response).await
-            }
-        };
+        let inner_client = self.inner.clone();
+        let gax_options = self.inner.options.gax();
         async move {
             if !bucket.starts_with("projects/_/buckets/") {
                 return Err(crate::Error::binding(format!(
                     "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
                 )));
             }
+            let options = gax_options
+                .insert_extension(google_cloud_gax::options::internal::PathTemplate(
+                    "/upload/storage/v1/b/{bucket}/o",
+                ))
+                .insert_extension(google_cloud_gax::options::internal::ResourceName(format!(
+                    "//storage.googleapis.com/{bucket}",
+                )));
+            let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let inner = async move |_| {
+                let attempt = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let builder = inner_client
+                    .client
+                    .http_builder_with_url(
+                        gaxi::http::reqwest::Method::DELETE,
+                        &upload_id,
+                        crate::storage::DEFAULT_HOST,
+                    )?
+                    .header(
+                        "x-goog-api-client",
+                        gaxi::http::reqwest::HeaderValue::from_static(
+                            &crate::storage::info::X_GOOG_API_CLIENT_HEADER,
+                        ),
+                    );
+                let response = builder
+                    .send(
+                        options.clone(),
+                        gaxi::attempt_info::AttemptInfo::new(attempt),
+                    )
+                    .await
+                    .map_err(crate::Error::io)?;
+                // GCS returns 499 for deleted/cancelled resumable uploads.
+                if response.status().as_u16() == 499 || response.status().is_success() {
+                    Ok(())
+                } else {
+                    gaxi::http::to_http_error(response).await
+                }
+            };
             google_cloud_gax::retry_loop_internal::retry_loop(
                 inner,
                 async |duration| tokio::time::sleep(duration).await,
