@@ -240,6 +240,7 @@ pub enum WriteError {
         /// The GCS-reported resume offset.
         expected_offset: u64,
         /// The actual number of bytes read locally from the payload before reaching EOF.
+        /// In the unbuffered (seekable) path, this represents the total size of the payload.
         local_bytes_read: u64,
     },
 

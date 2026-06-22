@@ -307,13 +307,15 @@ where
     /// already-persisted bytes, and resumes uploading from where it left off.
     ///
     /// # Warning
-    /// Passing a stream that is already partially consumed will result in the client library
-    /// skipping incorrect bytes, causing data corruption. The source payload must represent
-    /// the full object content starting from the beginning.
-    ///
-    /// The `bucket` and `object` parameters must exactly match the bucket and object specified
-    /// when the resumable upload session was created. Mismatching parameters can cause routing,
-    /// telemetry, or access control failures.
+    /// - Passing a stream that is already partially consumed will result in the client library
+    ///   skipping incorrect bytes, causing data corruption. The source payload must represent
+    ///   the full object content starting from the beginning.
+    /// - The `bucket` and `object` parameters must exactly match the bucket and object specified
+    ///   when the resumable upload session was created. Mismatching parameters can cause routing,
+    ///   telemetry, or access control failures.
+    /// - Chaining metadata-modifying methods (such as `.set_content_type()`, `.set_metadata()`,
+    ///   etc.) on the returned `WriteObject` builder is a no-op on GCS for a resumed session, as
+    ///   metadata options are finalized when the session is initiated.
     pub fn continue_upload<B, O, U, T, P>(
         &self,
         bucket: B,

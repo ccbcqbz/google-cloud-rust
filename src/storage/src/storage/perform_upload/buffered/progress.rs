@@ -765,7 +765,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mark_needs_query() -> Result {
+    async fn mark_needs_query() -> Result {
         let mut payload = Payload::from("");
         let mut upload = InProgressUpload::fake(0);
         upload.next_buffer(&mut payload).await?;

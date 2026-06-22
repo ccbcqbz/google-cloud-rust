@@ -403,6 +403,7 @@ impl super::stub::Storage for Storage {
             let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
             let inner = async move |_| {
                 let attempt = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let upload_id = upload_id.clone();
                 let builder = inner_client
                     .client
                     .http_builder_with_url(
