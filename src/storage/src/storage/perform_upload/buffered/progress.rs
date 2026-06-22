@@ -20,9 +20,18 @@ use crate::error::WriteError;
 use futures::stream::unfold;
 use gaxi::http::reqwest::Body;
 use std::collections::VecDeque;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum UploadState {
+    #[default]
+    New,
+    Resuming,
+    Active,
+}
 
 #[derive(Clone, Default)]
 pub struct InProgressUpload {
+    /// Tracks the state of the resumable upload process.
+    state: UploadState,
     /// The target size for each PUT request.
     ///
     /// The last PUT request may be smaller. This must be a multiple of 256KiB
@@ -137,9 +146,10 @@ impl InProgressUpload {
             } else if let Some(b) = payload.next().await.transpose().map_err(Error::ser)? {
                 skip_from_chunk(b, &mut self.skip_bytes, &mut self.remainder);
             } else {
+                let local_bytes_read = self.offset.saturating_sub(self.skip_bytes);
                 return Err(Error::ser(WriteError::PayloadUnderflow {
-                    offset: self.offset,
-                    persisted: self.offset - self.skip_bytes,
+                    expected_offset: self.offset,
+                    local_bytes_read,
                 }));
             }
         }
@@ -254,8 +264,20 @@ impl InProgressUpload {
         Ok(())
     }
 
-    pub fn initialize_resume(&mut self) {
+    pub fn mark_as_resuming(&mut self) {
+        self.state = UploadState::Resuming;
         self.persisted_size = None;
+    }
+
+    pub fn apply_query_result(&mut self, persisted_size: u64) -> Result<()> {
+        if self.state == UploadState::Resuming {
+            self.handle_resume_query(persisted_size);
+            self.state = UploadState::Active;
+        } else {
+            self.handle_partial(persisted_size)?;
+            self.state = UploadState::Active;
+        }
+        Ok(())
     }
 
     pub fn mark_needs_query(&mut self) {

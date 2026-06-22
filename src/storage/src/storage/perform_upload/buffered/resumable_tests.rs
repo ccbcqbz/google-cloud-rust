@@ -936,7 +936,7 @@ async fn resumable_continue_payload_underflow() -> Result {
 
     assert!(
         err.to_string()
-            .contains("the payload stream was exhausted before reaching the resume offset 500 (persisted only 100 bytes locally)"),
+            .contains("the payload stream was exhausted before reaching the resume offset 500 (read only 100 bytes locally)"),
         "error must describe the payload underflow: {err:?}"
     );
     Ok(())

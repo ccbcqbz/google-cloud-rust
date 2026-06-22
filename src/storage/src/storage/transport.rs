@@ -346,10 +346,9 @@ impl super::stub::Storage for Storage {
         let throttler = self.inner.options.retry_throttler.clone();
         let retry = self.inner.options.retry_policy.clone();
         let backoff = self.inner.options.backoff_policy.clone();
-        let mut count = 0;
+        let count = std::sync::atomic::AtomicU32::new(0);
         let inner = async move |_| {
-            let attempt = count;
-            count += 1;
+            let attempt = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             crate::storage::perform_upload::start_resumable_upload_attempt(
                 &inner_client,
                 &spec,
@@ -386,7 +385,7 @@ impl super::stub::Storage for Storage {
         let throttler = self.inner.options.retry_throttler.clone();
         let retry = self.inner.options.retry_policy.clone();
         let backoff = self.inner.options.backoff_policy.clone();
-        let mut count = 0;
+        let count = std::sync::atomic::AtomicU32::new(0);
         let client_clone = self.inner.client.clone();
         let options = self.inner.options.gax();
         let options = options
@@ -397,8 +396,7 @@ impl super::stub::Storage for Storage {
                 "//storage.googleapis.com/{bucket}",
             )));
         let inner = async move |_| {
-            let attempt = count;
-            count += 1;
+            let attempt = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let builder = client_clone
                 .http_builder_with_url(
                     gaxi::http::reqwest::Method::DELETE,
@@ -445,7 +443,7 @@ mod tests {
     use google_cloud_auth::credentials::anonymous::Builder as Anonymous;
     use google_cloud_test_utils::test_layer::AttributeValue;
     use google_cloud_test_utils::test_layer::{CapturedSpan, TestLayer};
-    use httptest::{Expectation, Server, matchers::*, responders::{status_code, cycle}};
+    use httptest::{Expectation, Server, matchers::*, responders::{cycle, status_code}};
     use pretty_assertions::assert_eq;
     use std::collections::BTreeMap;
     use std::sync::Arc;

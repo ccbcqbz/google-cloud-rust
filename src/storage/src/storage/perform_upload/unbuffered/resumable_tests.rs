@@ -942,6 +942,8 @@ async fn resumable_delete_session_success() -> Result {
     let session = server.url("/upload/session/test-only-001");
     let path = session.path().to_string();
 
+    // GCS returns 499 (Client Closed Request) for successfully cancelled/deleted
+    // resumable upload sessions. The client library treats 499 as success.
     server.expect(
         Expectation::matching(all_of![request::method_path("DELETE", path.clone()),])
             .times(1)
@@ -957,5 +959,142 @@ async fn resumable_delete_session_success() -> Result {
         .cancel_resumable_write("projects/_/buckets/test-bucket", &session.to_string())
         .await?;
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn resumable_continue_payload_underflow() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-underflow");
+    let path = session.path().to_string();
+
+    // 1. The query status request
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(1)
+        .respond_with(status_code(308).append_header("range", "bytes=0-499")),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 100]); // Shorter than range query progress (500)
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let err = client
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
+        .send_unbuffered()
+        .await
+        .expect_err("should fail with PayloadUnderflow");
+
+    assert!(
+        err.to_string()
+            .contains("the payload stream was exhausted before reaching the resume offset 500 (read only 100 bytes locally)"),
+        "error must describe the payload underflow: {err:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn resumable_continue_already_completed() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-completed");
+    let path = session.path().to_string();
+
+    // 1. The query status request returns 200 or 201 with final object metadata
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(1)
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let response = client
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
+        .send_unbuffered()
+        .await?;
+
+    assert_eq!(response.name, "test-object");
+    Ok(())
+}
+
+#[tokio::test]
+async fn resumable_continue_no_progress() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-no-progress");
+    let path = session.path().to_string();
+
+    // 1. The query status request
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(1)
+        .respond_with(status_code(308)), // No Range header => progress is 0
+    );
+
+    // 2. The PUT data request starting from byte 0
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes 0-999/1000"))),
+        ])
+        .times(1)
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let response = client
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
+        .send_unbuffered()
+        .await?;
+
+    assert_eq!(response.name, "test-object");
     Ok(())
 }

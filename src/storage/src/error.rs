@@ -234,13 +234,13 @@ pub enum WriteError {
     /// the GCS-reported offset, the upload cannot be resumed.
     /// Verify that the payload contains the complete content starting from byte 0.
     #[error(
-        "the payload stream was exhausted before reaching the resume offset {offset} (persisted only {persisted} bytes locally)"
+        "the payload stream was exhausted before reaching the resume offset {expected_offset} (read only {local_bytes_read} bytes locally)"
     )]
     PayloadUnderflow {
-        /// The offset reported by the service.
-        offset: u64,
-        /// The number of bytes successfully read from the payload stream.
-        persisted: u64,
+        /// The GCS-reported resume offset.
+        expected_offset: u64,
+        /// The actual number of bytes read locally from the payload before reaching EOF.
+        local_bytes_read: u64,
     },
 
     /// The service reports more bytes persisted than sent.

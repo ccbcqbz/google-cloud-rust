@@ -17,6 +17,7 @@ use super::{
     StreamingSource, X_GOOG_API_CLIENT_HEADER, apply_customer_supplied_encryption_headers,
     handle_object_response, v1, apply_preconditions,
 };
+use crate::error::WriteError;
 use futures::stream::unfold;
 use gaxi::attempt_info::AttemptInfo;
 use gaxi::http::HttpRequestBuilder;
@@ -93,6 +94,15 @@ where
             let upload_url = self.start_resumable_upload_attempt(attempt_count).await?;
             (0_u64, url.insert(upload_url).as_str())
         };
+
+        if let Some(size) = hint.exact() {
+            if offset > size {
+                return Err(Error::ser(WriteError::PayloadUnderflow {
+                    expected_offset: offset,
+                    local_bytes_read: size,
+                }));
+            }
+        }
 
         let range = match (offset, hint.exact()) {
             (o, None) => format!("bytes {o}-*/*"),

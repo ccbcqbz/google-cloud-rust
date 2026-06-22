@@ -87,7 +87,7 @@ impl<S> PerformUpload<S> {
         .await
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) async fn start_resumable_upload_request(&self) -> Result<HttpRequestBuilder> {
         self::start_resumable_upload_request(&self.inner, &self.spec, &self.params).await
     }
@@ -122,7 +122,6 @@ impl<S> PerformUpload<S> {
             .map_err(Error::io)?;
         self::query_resumable_upload_handle_response(response).await
     }
-
 }
 
 pub(crate) async fn start_resumable_upload_attempt(
@@ -210,7 +209,6 @@ fn apply_preconditions(
         |b, (k, v)| if v.is_empty() { b } else { b.query(k, v) },
     )
 }
-
 
 async fn handle_start_resumable_upload_response(response: Response) -> Result<String> {
     if !response.status().is_success() {

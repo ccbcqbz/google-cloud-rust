@@ -331,6 +331,17 @@ where
     ///
     /// The `bucket` parameter is used for telemetry and routing metadata, while the
     /// actual request is routed using the `upload_id` session URI.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = google_cloud_storage::client::Storage::builder().build().await?;
+    /// let session_uri = "https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?upload_id=session-id";
+    /// client.cancel_resumable_write("projects/_/buckets/my-bucket", session_uri).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn cancel_resumable_write<B, U>(&self, bucket: B, upload_id: U) -> crate::Result<()>
     where
         B: Into<String>,

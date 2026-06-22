@@ -55,6 +55,9 @@ where
 
     async fn send_buffered_resumable(self, hint: SizeHint) -> Result<Object> {
         let mut progress = InProgressUpload::new(self.options.resumable_upload_buffer_size(), hint);
+        if self.upload_id.is_some() {
+            progress.mark_as_resuming();
+        }
         let mut url = self.upload_id.clone();
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
@@ -93,11 +96,6 @@ where
             url.insert(u).as_str()
         };
 
-        let is_initial_resume_query = attempt_count == 0 && is_resume;
-        if is_initial_resume_query {
-            progress.initialize_resume();
-        }
-
         let mut is_partial_resume = false;
         if progress.needs_query() {
             match self.query_resumable_upload_attempt(upload_url, 0).await? {
@@ -106,11 +104,7 @@ where
                     if persisted_size > 0 {
                         is_partial_resume = true;
                     }
-                    if is_initial_resume_query {
-                        progress.handle_resume_query(persisted_size);
-                    } else {
-                        progress.handle_partial(persisted_size)?;
-                    }
+                    progress.apply_query_result(persisted_size)?;
                 }
             };
         }
