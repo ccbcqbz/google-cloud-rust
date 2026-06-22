@@ -339,14 +339,10 @@ impl super::stub::Storage for Storage {
         &self,
         request: WriteObjectRequest,
     ) -> impl std::future::Future<Output = Result<String>> + Send {
-        let upload = Arc::new(PerformUpload::new(
-            crate::streaming_source::BytesSource::new(bytes::Bytes::new()),
-            self.inner.clone(),
-            request.spec,
-            request.params,
-            self.inner.options.clone(),
-            None,
-        ));
+        let inner_client = self.inner.clone();
+        let spec = request.spec;
+        let params = request.params;
+        let options = self.inner.options.clone();
         let throttler = self.inner.options.retry_throttler.clone();
         let retry = self.inner.options.retry_policy.clone();
         let backoff = self.inner.options.backoff_policy.clone();
@@ -354,8 +350,14 @@ impl super::stub::Storage for Storage {
         let inner = async move |_| {
             let attempt = count;
             count += 1;
-            let upload = upload.clone();
-            upload.start_resumable_upload_attempt(attempt).await
+            crate::storage::perform_upload::start_resumable_upload_attempt(
+                &inner_client,
+                &spec,
+                &params,
+                &options,
+                attempt,
+            )
+            .await
         };
         async move {
             google_cloud_gax::retry_loop_internal::retry_loop(
@@ -443,7 +445,7 @@ mod tests {
     use google_cloud_auth::credentials::anonymous::Builder as Anonymous;
     use google_cloud_test_utils::test_layer::AttributeValue;
     use google_cloud_test_utils::test_layer::{CapturedSpan, TestLayer};
-    use httptest::{Expectation, Server, matchers::*, responders::status_code};
+    use httptest::{Expectation, Server, matchers::*, responders::{status_code, cycle}};
     use pretty_assertions::assert_eq;
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -825,6 +827,56 @@ mod tests {
         let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
         let request = WriteObjectRequest { spec, params: None };
         let response = client.start_upload_with_request(request).await?;
+        assert_eq!(
+            response,
+            "http://private.googleapis.com/test-only/session-123"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_upload_retry() -> anyhow::Result<()> {
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+                request::query(url_decoded(contains(("uploadType", "resumable")))),
+            ])
+            .times(3)
+            .respond_with(cycle![
+                status_code(503),
+                status_code(503),
+                status_code(200).append_header(
+                    "Location",
+                    "http://private.googleapis.com/test-only/session-123",
+                ),
+            ]),
+        );
+
+        #[derive(Clone, Debug)]
+        struct ZeroBackoff;
+        impl google_cloud_gax::backoff_policy::BackoffPolicy for ZeroBackoff {
+            fn on_failure(&self, _state: &google_cloud_gax::retry_state::RetryState) -> std::time::Duration {
+                std::time::Duration::from_millis(0)
+            }
+        }
+
+        let client = crate::client::Storage::builder()
+            .with_endpoint(format!("http://{}", server.addr()))
+            .with_credentials(Anonymous::new().build())
+            .with_backoff_policy(ZeroBackoff)
+            .build()
+            .await?;
+
+        let response = match client
+            .start_upload("projects/_/buckets/test-bucket", "test-object")
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                panic!("start_upload failed with error: {e:?}");
+            }
+        };
         assert_eq!(
             response,
             "http://private.googleapis.com/test-only/session-123"

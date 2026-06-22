@@ -305,20 +305,26 @@ where
     /// The caller must provide the complete payload starting from byte 0. The client library
     /// automatically queries GCS for the current upload progress, seeks or skips the
     /// already-persisted bytes, and resumes uploading from where it left off.
-    pub fn continue_upload<B, O, T, P>(
+    ///
+    /// # Warning
+    /// Passing a stream that is already partially consumed will result in the client library
+    /// skipping incorrect bytes, causing data corruption. The source payload must represent
+    /// the full object content starting from the beginning.
+    pub fn continue_upload<B, O, U, T, P>(
         &self,
         bucket: B,
         object: O,
-        upload_id: String,
+        upload_id: U,
         payload: T,
     ) -> WriteObject<P, S>
     where
         B: Into<String>,
         O: Into<String>,
+        U: Into<String>,
         T: Into<Payload<P>>,
     {
         self.write_object(bucket, object, payload)
-            .with_upload_id(upload_id)
+            .with_upload_id(upload_id.into())
     }
 
     /// Cancels an active GCS resumable upload session.

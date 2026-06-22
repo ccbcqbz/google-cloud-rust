@@ -25,7 +25,7 @@ pub async fn sample(client: &Storage, bucket: &str, object: &str) -> Result<(), 
     // 2. Continue/perform upload using the session
     let payload = "Hello World! This is an application-controlled resumable upload payload.";
     let response = client
-        .continue_upload(&bucket_path, object, upload_id.clone(), payload)
+        .continue_upload(&bucket_path, object, upload_id, payload)
         .send_buffered()
         .await?;
     println!("Uploaded object: {:?}", response);

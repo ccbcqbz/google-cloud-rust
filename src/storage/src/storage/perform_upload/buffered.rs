@@ -93,7 +93,8 @@ where
             url.insert(u).as_str()
         };
 
-        if attempt_count == 0 && is_resume {
+        let is_initial_resume_query = attempt_count == 0 && is_resume;
+        if is_initial_resume_query {
             progress.initialize_resume();
         }
 
@@ -105,7 +106,11 @@ where
                     if persisted_size > 0 {
                         is_partial_resume = true;
                     }
-                    progress.handle_partial(persisted_size)?;
+                    if is_initial_resume_query {
+                        progress.handle_resume_query(persisted_size);
+                    } else {
+                        progress.handle_partial(persisted_size)?;
+                    }
                 }
             };
         }

@@ -15,7 +15,7 @@
 use super::{
     ContinueOn308, Error, Object, PerformUpload, Result, ResumableUploadStatus, Seek, SizeHint,
     StreamingSource, X_GOOG_API_CLIENT_HEADER, apply_customer_supplied_encryption_headers,
-    handle_object_response, v1,
+    handle_object_response, v1, apply_preconditions,
 };
 use futures::stream::unfold;
 use gaxi::attempt_info::AttemptInfo;
@@ -75,6 +75,10 @@ where
         hint: SizeHint,
         attempt_count: u32,
     ) -> Result<Object> {
+        // The unbuffered path utilizes seekable payloads (impl Seek). During a resume,
+        // it queries the server for the persisted size (offset) and directly seeks the
+        // payload stream to that offset, bypassing the need for manual byte-skipping logic
+        // and progress tracking state machines.
         let (offset, upload_url) = if let Some(upload_url) = url.as_deref() {
             match self
                 .query_resumable_upload_attempt(upload_url, attempt_count)
@@ -192,7 +196,7 @@ where
                 HeaderValue::from_static(&X_GOOG_API_CLIENT_HEADER),
             );
 
-        let builder = self.apply_preconditions(builder);
+        let builder = apply_preconditions(builder, &self.spec);
         let builder = apply_customer_supplied_encryption_headers(builder, &self.params);
 
         let metadata = multipart::Part::text(v1::insert_body(self.resource()).to_string())

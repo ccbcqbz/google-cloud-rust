@@ -834,8 +834,12 @@ async fn resumable_continue_with_upload_id_success() -> Result {
         .await?;
 
     let response = client
-        .write_object("projects/_/buckets/test-bucket", "test-object", payload)
-        .with_upload_id(session.to_string())
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
         .send_buffered()
         .await?;
 
@@ -882,8 +886,12 @@ async fn resumable_continue_no_progress() -> Result {
         .await?;
 
     let response = client
-        .write_object("projects/_/buckets/test-bucket", "test-object", payload)
-        .with_upload_id(session.to_string())
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
         .send_buffered()
         .await?;
 
@@ -892,7 +900,7 @@ async fn resumable_continue_no_progress() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_continue_unexpected_rewind() -> Result {
+async fn resumable_continue_payload_underflow() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-rewind");
     let path = session.path().to_string();
@@ -916,16 +924,20 @@ async fn resumable_continue_unexpected_rewind() -> Result {
         .await?;
 
     let err = client
-        .write_object("projects/_/buckets/test-bucket", "test-object", payload)
-        .with_upload_id(session.to_string())
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
         .send_buffered()
         .await
-        .expect_err("should fail with UnexpectedRewind");
+        .expect_err("should fail with PayloadUnderflow");
 
     assert!(
         err.to_string()
-            .contains("previously persisted 500 bytes, but now reports only 100 as persisted"),
-        "error must describe the unexpected rewind: {err:?}"
+            .contains("the payload stream was exhausted before reaching the resume offset 500 (persisted only 100 bytes locally)"),
+        "error must describe the payload underflow: {err:?}"
     );
     Ok(())
 }
@@ -959,8 +971,12 @@ async fn resumable_continue_already_completed() -> Result {
         .await?;
 
     let response = client
-        .write_object("projects/_/buckets/test-bucket", "test-object", payload)
-        .with_upload_id(session.to_string())
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
         .send_buffered()
         .await?;
 

@@ -49,8 +49,6 @@ pub struct InProgressUpload {
     source_ended: bool,
     /// The number of bytes to skip from the payload stream (used when resuming).
     skip_bytes: u64,
-    /// Indicates if the next status query is the first status query for a resume.
-    initial_query: bool,
 }
 
 struct Summary<'a>(&'a VecDeque<bytes::Bytes>);
@@ -139,7 +137,7 @@ impl InProgressUpload {
             } else if let Some(b) = payload.next().await.transpose().map_err(Error::ser)? {
                 skip_from_chunk(b, &mut self.skip_bytes, &mut self.remainder);
             } else {
-                return Err(Error::ser(WriteError::UnexpectedRewind {
+                return Err(Error::ser(WriteError::PayloadUnderflow {
                     offset: self.offset,
                     persisted: self.offset - self.skip_bytes,
                 }));
@@ -214,14 +212,13 @@ impl InProgressUpload {
         Body::wrap_stream(stream)
     }
 
+    pub fn handle_resume_query(&mut self, persisted_size: u64) {
+        self.persisted_size = Some(persisted_size);
+        self.offset = persisted_size;
+        self.skip_bytes = persisted_size;
+    }
+
     pub fn handle_partial(&mut self, persisted_size: u64) -> Result<()> {
-        if self.initial_query {
-            self.initial_query = false;
-            self.persisted_size = Some(persisted_size);
-            self.offset = persisted_size;
-            self.skip_bytes = persisted_size;
-            return Ok(());
-        }
         let consumed = match (self.offset, self.buffer_size as u64, persisted_size) {
             (o, _, p) if p < o => Err(WriteError::UnexpectedRewind {
                 offset: o,
@@ -258,7 +255,6 @@ impl InProgressUpload {
     }
 
     pub fn initialize_resume(&mut self) {
-        self.initial_query = true;
         self.persisted_size = None;
     }
 

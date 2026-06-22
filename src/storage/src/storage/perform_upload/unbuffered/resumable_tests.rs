@@ -923,8 +923,12 @@ async fn resumable_continue_with_upload_id_success() -> Result {
         .await?;
 
     let response = client
-        .write_object("projects/_/buckets/test-bucket", "test-object", payload)
-        .with_upload_id(session.to_string())
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
         .send_unbuffered()
         .await?;
 
