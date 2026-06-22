@@ -58,6 +58,8 @@ pub struct InProgressUpload {
     source_ended: bool,
     /// The number of bytes to skip from the payload stream (used when resuming).
     skip_bytes: u64,
+    /// The total number of bytes read from the payload stream during skipping.
+    total_bytes_read_during_skip: u64,
 }
 
 struct Summary<'a>(&'a VecDeque<bytes::Bytes>);
@@ -126,8 +128,10 @@ impl InProgressUpload {
     fn skip_from_chunk(&mut self, mut chunk: bytes::Bytes) {
         let len = chunk.len() as u64;
         if len <= self.skip_bytes {
+            self.total_bytes_read_during_skip += len;
             self.skip_bytes -= len;
         } else {
+            self.total_bytes_read_during_skip += self.skip_bytes;
             self.remainder.push_front(chunk.split_off(self.skip_bytes as usize));
             self.skip_bytes = 0;
         }
@@ -138,7 +142,7 @@ impl InProgressUpload {
         S: StreamingSource,
     {
         if self.skip_bytes > 0 {
-            assert!(
+            debug_assert!(
                 self.remainder.is_empty(),
                 "remainder must be empty during initial resume setup"
             );
@@ -150,10 +154,9 @@ impl InProgressUpload {
             } else if let Some(b) = payload.next().await.transpose().map_err(Error::ser)? {
                 self.skip_from_chunk(b);
             } else {
-                let local_bytes_read = self.offset.saturating_sub(self.skip_bytes);
                 return Err(Error::ser(WriteError::PayloadUnderflow {
                     expected_offset: self.offset,
-                    local_bytes_read,
+                    local_bytes_read: self.total_bytes_read_during_skip,
                 }));
             }
         }

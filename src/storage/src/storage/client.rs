@@ -341,6 +341,8 @@ where
     /// session was created. Mismatching bucket names can cause incorrect routing, telemetry, or
     /// access control failures.
     ///
+    /// Note that the library does not validate the bucket parameter against the session URI.
+    ///
     /// # Example
     /// ```no_run
     /// # #[tokio::main]

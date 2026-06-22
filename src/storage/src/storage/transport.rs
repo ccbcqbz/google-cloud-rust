@@ -348,6 +348,10 @@ impl super::stub::Storage for Storage {
         let backoff = self.inner.options.backoff_policy.clone();
         let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
         let inner_count = count.clone();
+        // The closure captures `spec` and `params` by value (async move).
+        // Since `WriteObjectSpec` and `CommonObjectRequestParams` are `Send + 'static`,
+        // and the retry loop runs the returned futures sequentially, this is
+        // thread-safe and compile-safe.
         let inner = async move |_| {
             let attempt = inner_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             crate::storage::perform_upload::start_resumable_upload_attempt(
@@ -372,17 +376,11 @@ impl super::stub::Storage for Storage {
         }
     }
 
-    fn cancel_resumable_write<B, U>(
+    fn cancel_resumable_write(
         &self,
-        bucket: B,
-        upload_id: U,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        B: Into<String> + Send,
-        U: Into<String> + Send,
-    {
-        let bucket = bucket.into();
-        let upload_id = upload_id.into();
+        bucket: String,
+        upload_id: String,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
         let throttler = self.inner.options.retry_throttler.clone();
         let retry = self.inner.options.retry_policy.clone();
         let backoff = self.inner.options.backoff_policy.clone();
@@ -830,6 +828,43 @@ mod tests {
         assert_eq!(
             response,
             "http://private.googleapis.com/test-only/session-123"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn start_upload_with_preconditions() -> anyhow::Result<()> {
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+                request::query(url_decoded(contains(("uploadType", "resumable")))),
+                request::query(url_decoded(contains(("name", "test-object")))),
+                request::query(url_decoded(contains(("ifGenerationMatch", "42")))),
+            ])
+            .respond_with(status_code(200).append_header(
+                "Location",
+                "http://private.googleapis.com/test-only/session-precond",
+            )),
+        );
+
+        let client = crate::client::Storage::builder()
+            .with_endpoint(format!("http://{}", server.addr()))
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+
+        let resource = crate::model::Object::new()
+            .set_bucket("projects/_/buckets/test-bucket")
+            .set_name("test-object");
+        let spec = crate::model::WriteObjectSpec::new()
+            .set_resource(resource)
+            .set_if_generation_match(42_i64);
+        let request = WriteObjectRequest { spec, params: None };
+        let response = client.start_upload_with_request(request).await?;
+        assert_eq!(
+            response,
+            "http://private.googleapis.com/test-only/session-precond"
         );
         Ok(())
     }

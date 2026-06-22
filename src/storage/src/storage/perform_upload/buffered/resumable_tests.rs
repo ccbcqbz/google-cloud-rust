@@ -192,7 +192,7 @@ async fn empty_success() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_empty_unknown() -> Result {
+async fn buffered_resumable_empty_unknown() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-001");
     let path = session.path().to_string();
@@ -333,7 +333,7 @@ async fn empty_csek() -> Result {
 }
 
 #[tokio::test]
-async fn source_next_error() -> Result {
+async fn buffered_source_next_error() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-001");
     server.expect(
@@ -378,7 +378,7 @@ async fn source_next_error() -> Result {
 }
 
 #[tokio::test]
-async fn start_permanent_error() -> Result {
+async fn buffered_start_permanent_error() -> Result {
     let server = Server::run();
     server.expect(
         Expectation::matching(all_of![
@@ -411,7 +411,7 @@ async fn start_permanent_error() -> Result {
 }
 
 #[tokio::test]
-async fn start_too_many_transients() -> Result {
+async fn buffered_start_too_many_transients() -> Result {
     let server = Server::run();
     server.expect(
         Expectation::matching(all_of![
@@ -796,7 +796,7 @@ async fn start_resumable_upload_client_retry_options() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_continue_with_upload_id_success() -> Result {
+async fn buffered_resumable_continue_with_upload_id_success() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-001");
     let path = session.path().to_string();
@@ -848,7 +848,7 @@ async fn resumable_continue_with_upload_id_success() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_continue_no_progress() -> Result {
+async fn buffered_resumable_continue_no_progress() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-no-progress");
     let path = session.path().to_string();
@@ -900,7 +900,7 @@ async fn resumable_continue_no_progress() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_continue_payload_underflow() -> Result {
+async fn buffered_resumable_continue_payload_underflow() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-rewind");
     let path = session.path().to_string();
@@ -943,7 +943,7 @@ async fn resumable_continue_payload_underflow() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_continue_already_completed() -> Result {
+async fn buffered_resumable_continue_already_completed() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-completed");
     let path = session.path().to_string();

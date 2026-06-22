@@ -807,6 +807,9 @@ where
     }
 
     /// Sets the upload ID/session URI for resuming a resumable upload.
+    ///
+    /// This is `pub(crate)` to prevent callers from setting the upload ID directly on
+    /// a new upload, enforcing `continue_upload` as the canonical public API.
     pub(crate) fn with_upload_id<V: Into<String>>(mut self, v: V) -> Self {
         self.upload_id = Some(v.into());
         self

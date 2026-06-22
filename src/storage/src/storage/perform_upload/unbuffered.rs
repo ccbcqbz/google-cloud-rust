@@ -95,6 +95,9 @@ where
             (0_u64, url.insert(upload_url).as_str())
         };
 
+        // We can only check for underflow if the exact size of the payload is known.
+        // If the size is unknown, the check is skipped and the request will proceed,
+        // likely failing with a less descriptive HTTP error if the stream ends prematurely.
         if let Some(size) = hint.exact() {
             if offset > size {
                 return Err(Error::ser(WriteError::PayloadUnderflow {
@@ -206,7 +209,7 @@ where
                 HeaderValue::from_static(&X_GOOG_API_CLIENT_HEADER),
             );
 
-        let builder = apply_preconditions(builder, &self.spec)?;
+        let builder = apply_preconditions(builder, &self.spec, self.resource());
         let builder = apply_customer_supplied_encryption_headers(builder, &self.params);
 
         let metadata = multipart::Part::text(v1::insert_body(self.resource()).to_string())

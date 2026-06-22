@@ -93,15 +93,11 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
     }
 
     /// Implements [crate::client::Storage::cancel_resumable_write].
-    fn cancel_resumable_write<B, U>(
+    fn cancel_resumable_write(
         &self,
-        bucket: B,
-        upload_id: U,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        B: Into<String> + Send,
-        U: Into<String> + Send,
-    {
+        bucket: String,
+        upload_id: String,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
         let _ = bucket;
         let _ = upload_id;
         unimplemented_stub::<()>()
