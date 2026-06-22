@@ -370,8 +370,11 @@ pub async fn run_object_examples(buckets: &mut Vec<String>) -> anyhow::Result<()
     objects::stream_file_upload::sample(&client, &id).await?;
     tracing::info!("running stream_file_download example");
     objects::stream_file_download::sample(&client, &id).await?;
-    tracing::info!("running application_resumable_upload example");
-    objects::application_resumable_upload::sample(&client, &id, "application-resumable-object.txt")
+    let resumable_object_name = format!(
+        "application-resumable-object-{}.txt",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+    );
+    objects::application_resumable_upload::sample(&client, &id, &resumable_object_name)
         .await?;
 
     tracing::info!("create temp file for upload");

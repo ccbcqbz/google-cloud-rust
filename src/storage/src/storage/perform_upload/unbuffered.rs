@@ -48,7 +48,7 @@ where
     }
 
     async fn send_unbuffered_resumable(self, hint: SizeHint) -> Result<Object> {
-        let mut upload_url = self.upload_id.clone();
+        let mut upload_url = self.upload_id().map(String::from);
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let backoff = self.options.backoff_policy.clone();
@@ -206,7 +206,7 @@ where
                 HeaderValue::from_static(&X_GOOG_API_CLIENT_HEADER),
             );
 
-        let builder = apply_preconditions(builder, &self.spec);
+        let builder = apply_preconditions(builder, &self.spec)?;
         let builder = apply_customer_supplied_encryption_headers(builder, &self.params);
 
         let metadata = multipart::Part::text(v1::insert_body(self.resource()).to_string())

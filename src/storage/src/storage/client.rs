@@ -310,6 +310,10 @@ where
     /// Passing a stream that is already partially consumed will result in the client library
     /// skipping incorrect bytes, causing data corruption. The source payload must represent
     /// the full object content starting from the beginning.
+    ///
+    /// The `bucket` and `object` parameters must exactly match the bucket and object specified
+    /// when the resumable upload session was created. Mismatching parameters can cause routing,
+    /// telemetry, or access control failures.
     pub fn continue_upload<B, O, U, T, P>(
         &self,
         bucket: B,
@@ -331,6 +335,11 @@ where
     ///
     /// The `bucket` parameter is used for telemetry and routing metadata, while the
     /// actual request is routed using the `upload_id` session URI.
+    ///
+    /// # Warning
+    /// The `bucket` parameter must exactly match the bucket specified when the resumable upload
+    /// session was created. Mismatching bucket names can cause incorrect routing, telemetry, or
+    /// access control failures.
     ///
     /// # Example
     /// ```no_run

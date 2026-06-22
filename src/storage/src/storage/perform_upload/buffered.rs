@@ -55,10 +55,10 @@ where
 
     async fn send_buffered_resumable(self, hint: SizeHint) -> Result<Object> {
         let mut progress = InProgressUpload::new(self.options.resumable_upload_buffer_size(), hint);
-        if self.upload_id.is_some() {
+        if self.upload_id().is_some() {
             progress.mark_as_resuming();
         }
-        let mut url = self.upload_id.clone();
+        let mut url = self.upload_id().map(String::from);
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let backoff = self.options.backoff_policy.clone();

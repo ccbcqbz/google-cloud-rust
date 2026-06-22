@@ -123,28 +123,32 @@ impl InProgressUpload {
                 .is_some_and(|len| self.offset + self.buffer_size as u64 == len)
     }
 
+    fn skip_from_chunk(&mut self, mut chunk: bytes::Bytes) {
+        let len = chunk.len() as u64;
+        if len <= self.skip_bytes {
+            self.skip_bytes -= len;
+        } else {
+            self.remainder.push_front(chunk.split_off(self.skip_bytes as usize));
+            self.skip_bytes = 0;
+        }
+    }
+
     pub async fn next_buffer<S>(&mut self, payload: &mut S) -> Result<()>
     where
         S: StreamingSource,
     {
-        let skip_from_chunk =
-            |mut chunk: bytes::Bytes,
-             skip_bytes: &mut u64,
-             remainder: &mut VecDeque<bytes::Bytes>| {
-                let len = chunk.len() as u64;
-                if len <= *skip_bytes {
-                    *skip_bytes -= len;
-                } else {
-                    remainder.push_front(chunk.split_off(*skip_bytes as usize));
-                    *skip_bytes = 0;
-                }
-            };
+        if self.skip_bytes > 0 {
+            assert!(
+                self.remainder.is_empty(),
+                "remainder must be empty during initial resume setup"
+            );
+        }
 
         while self.skip_bytes > 0 {
             if let Some(b) = self.remainder.pop_front() {
-                skip_from_chunk(b, &mut self.skip_bytes, &mut self.remainder);
+                self.skip_from_chunk(b);
             } else if let Some(b) = payload.next().await.transpose().map_err(Error::ser)? {
-                skip_from_chunk(b, &mut self.skip_bytes, &mut self.remainder);
+                self.skip_from_chunk(b);
             } else {
                 let local_bytes_read = self.offset.saturating_sub(self.skip_bytes);
                 return Err(Error::ser(WriteError::PayloadUnderflow {
@@ -152,6 +156,10 @@ impl InProgressUpload {
                     local_bytes_read,
                 }));
             }
+        }
+
+        if self.state == UploadState::New {
+            self.state = UploadState::Active;
         }
 
         let mut buffer = VecDeque::new();

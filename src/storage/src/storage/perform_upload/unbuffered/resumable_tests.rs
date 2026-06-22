@@ -77,11 +77,16 @@
 //! [Seek]: crate::streaming_source::Seek
 
 use crate::model_ext::{KeyAes256, tests::create_key_helper};
-use crate::storage::client::{Storage, tests::test_builder};
+use crate::storage::client::{
+    Storage,
+    tests::{test_builder, MockBackoffPolicy, MockRetryPolicy, MockRetryThrottler},
+};
 use crate::streaming_source::{BytesSource, SizeHint, tests::UnknownSize};
 use gaxi::http::reqwest::Response;
 use google_cloud_auth::credentials::anonymous::Builder as Anonymous;
 use google_cloud_gax::retry_policy::RetryPolicyExt;
+use google_cloud_gax::retry_result::RetryResult;
+use std::time::Duration;
 use httptest::{Expectation, Server, matchers::*, responders::*};
 use serde_json::{Value, json};
 
@@ -1096,5 +1101,66 @@ async fn resumable_continue_no_progress() -> Result {
         .await?;
 
     assert_eq!(response.name, "test-object");
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancel_resumable_write_retry() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-cancel-retry");
+    let path = session.path().to_string();
+
+    // 1. The first cancel request returns 503 (transient)
+    // 2. The second cancel request returns 499 (success)
+    server.expect(
+        Expectation::matching(all_of![request::method_path("DELETE", path.clone()),])
+            .times(2)
+            .respond_with(cycle![
+                status_code(503).body("Service Unavailable"),
+                status_code(499),
+            ]),
+    );
+
+    let mut retry = MockRetryPolicy::new();
+    retry
+        .expect_on_error()
+        .times(1)
+        .returning(|_, e| {
+            if e.http_status_code() == Some(503) {
+                RetryResult::Continue(e)
+            } else {
+                RetryResult::Permanent(e)
+            }
+        });
+
+    let mut backoff = MockBackoffPolicy::new();
+    backoff
+        .expect_on_failure()
+        .times(1)
+        .return_const(Duration::from_millis(0));
+
+    let mut throttler = MockRetryThrottler::new();
+    throttler
+        .expect_throttle_retry_attempt()
+        .times(1)
+        .return_const(false);
+    throttler
+        .expect_on_retry_failure()
+        .times(1)
+        .return_const(());
+    throttler.expect_on_success().times(1).return_const(());
+
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_retry_policy(retry)
+        .with_backoff_policy(backoff)
+        .with_retry_throttler(throttler)
+        .build()
+        .await?;
+
+    client
+        .cancel_resumable_write("projects/_/buckets/test-bucket", session.to_string())
+        .await?;
+
     Ok(())
 }

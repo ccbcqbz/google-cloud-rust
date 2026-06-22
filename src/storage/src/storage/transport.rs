@@ -346,9 +346,10 @@ impl super::stub::Storage for Storage {
         let throttler = self.inner.options.retry_throttler.clone();
         let retry = self.inner.options.retry_policy.clone();
         let backoff = self.inner.options.backoff_policy.clone();
-        let count = std::sync::atomic::AtomicU32::new(0);
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let inner_count = count.clone();
         let inner = async move |_| {
-            let attempt = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let attempt = inner_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             crate::storage::perform_upload::start_resumable_upload_attempt(
                 &inner_client,
                 &spec,
@@ -385,7 +386,8 @@ impl super::stub::Storage for Storage {
         let throttler = self.inner.options.retry_throttler.clone();
         let retry = self.inner.options.retry_policy.clone();
         let backoff = self.inner.options.backoff_policy.clone();
-        let count = std::sync::atomic::AtomicU32::new(0);
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let inner_count = count.clone();
         let client_clone = self.inner.client.clone();
         let options = self.inner.options.gax();
         let options = options
@@ -396,7 +398,7 @@ impl super::stub::Storage for Storage {
                 "//storage.googleapis.com/{bucket}",
             )));
         let inner = async move |_| {
-            let attempt = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let attempt = inner_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let builder = client_clone
                 .http_builder_with_url(
                     gaxi::http::reqwest::Method::DELETE,

@@ -66,6 +66,10 @@ impl<S> PerformUpload<S> {
         }
     }
 
+    pub(crate) fn upload_id(&self) -> Option<&str> {
+        self.upload_id.as_deref()
+    }
+
     fn resource(&self) -> &crate::model::Object {
         self.spec
             .resource
@@ -152,7 +156,9 @@ async fn start_resumable_upload_request(
     spec: &crate::model::WriteObjectSpec,
     params: &Option<crate::model::CommonObjectRequestParams>,
 ) -> Result<HttpRequestBuilder> {
-    let resource = spec.resource.as_ref().expect("resource field initialized");
+    let resource = spec.resource.as_ref().ok_or_else(|| {
+        Error::binding("WriteObjectSpec resource field is not initialized")
+    })?;
     let bucket = &resource.bucket;
     let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
         Error::binding(format!(
@@ -171,7 +177,7 @@ async fn start_resumable_upload_request(
             HeaderValue::from_static(&X_GOOG_API_CLIENT_HEADER),
         );
 
-    let builder = apply_preconditions(builder, spec);
+    let builder = apply_preconditions(builder, spec)?;
     let builder = apply_customer_supplied_encryption_headers(builder, params);
     let builder = builder.body(v1::insert_body(resource).to_string());
     Ok(builder)
@@ -180,8 +186,10 @@ async fn start_resumable_upload_request(
 fn apply_preconditions(
     builder: HttpRequestBuilder,
     spec: &crate::model::WriteObjectSpec,
-) -> HttpRequestBuilder {
-    let resource = spec.resource.as_ref().expect("resource field initialized");
+) -> Result<HttpRequestBuilder> {
+    let resource = spec.resource.as_ref().ok_or_else(|| {
+        Error::binding("WriteObjectSpec resource field is not initialized")
+    })?;
     let builder = spec
         .if_generation_match
         .iter()
@@ -199,7 +207,7 @@ fn apply_preconditions(
         .iter()
         .fold(builder, |b, v| b.query("ifMetagenerationNotMatch", v));
 
-    [
+    let builder = [
         ("kmsKeyName", resource.kms_key.as_str()),
         ("predefinedAcl", spec.predefined_acl.as_str()),
     ]
@@ -207,7 +215,8 @@ fn apply_preconditions(
     .fold(
         builder,
         |b, (k, v)| if v.is_empty() { b } else { b.query(k, v) },
-    )
+    );
+    Ok(builder)
 }
 
 async fn handle_start_resumable_upload_response(response: Response) -> Result<String> {
