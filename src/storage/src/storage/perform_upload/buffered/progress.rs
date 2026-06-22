@@ -132,7 +132,9 @@ impl InProgressUpload {
             self.skip_bytes -= len;
         } else {
             self.total_bytes_read_during_skip += self.skip_bytes;
-            self.remainder.push_front(chunk.split_off(self.skip_bytes as usize));
+            let skip_idx = usize::try_from(self.skip_bytes)
+                .expect("skip_bytes must fit in usize since it is less than chunk.len()");
+            self.remainder.push_front(chunk.split_off(skip_idx));
             self.skip_bytes = 0;
         }
     }
@@ -280,6 +282,14 @@ impl InProgressUpload {
         self.persisted_size = None;
     }
 
+    /// Applies the progress query result from GCS (the count of bytes persisted).
+    ///
+    /// - If the state is `Resuming`, this is the initial query on a resumed upload.
+    ///   We call `handle_resume_query` to skip the persisted bytes directly from the
+    ///   input stream payload.
+    /// - Otherwise (when state is `Active`), this is a mid-upload retry. We call
+    ///   `handle_partial` to rewind our local buffers and skip only the partially
+    ///   persisted bytes from our current chunk window.
     pub fn apply_query_result(&mut self, persisted_size: u64) -> Result<()> {
         if self.state == UploadState::Resuming {
             self.handle_resume_query(persisted_size);
@@ -291,6 +301,11 @@ impl InProgressUpload {
         Ok(())
     }
 
+    /// Marks the progress tracker as needing a query before sending the next chunk.
+    ///
+    /// This clears the known `persisted_size`, forcing `needs_query()` to return true.
+    /// It keeps the state as `Active` because any subsequent query is a mid-upload
+    /// retry (handling partial offsets), not an initial resume.
     pub fn mark_needs_query(&mut self) {
         self.persisted_size = None;
     }

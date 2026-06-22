@@ -92,7 +92,7 @@ impl<S> PerformUpload<S> {
     }
 
     #[cfg(test)]
-    pub(crate) async fn start_resumable_upload_request(&self) -> Result<HttpRequestBuilder> {
+    pub(crate) async fn test_start_resumable_upload_request(&self) -> Result<HttpRequestBuilder> {
         self::start_resumable_upload_request(&self.inner, &self.spec, &self.params).await
     }
 

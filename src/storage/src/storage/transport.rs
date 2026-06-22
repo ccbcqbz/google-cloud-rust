@@ -350,8 +350,9 @@ impl super::stub::Storage for Storage {
         let inner_count = count.clone();
         // The closure captures `spec` and `params` by value (async move).
         // Since `WriteObjectSpec` and `CommonObjectRequestParams` are `Send + 'static`,
-        // and the retry loop runs the returned futures sequentially, this is
-        // thread-safe and compile-safe.
+        // and the retry loop runs the returned futures sequentially (never concurrently),
+        // this is thread-safe and compile-safe.
+        // If the retry loop is ever changed to run attempts concurrently, this would break.
         let inner = async move |_| {
             let attempt = inner_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             crate::storage::perform_upload::start_resumable_upload_attempt(
@@ -424,6 +425,11 @@ impl super::stub::Storage for Storage {
             }
         };
         async move {
+            if !bucket.starts_with("projects/_/buckets/") {
+                return Err(crate::Error::binding(format!(
+                    "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+                )));
+            }
             google_cloud_gax::retry_loop_internal::retry_loop(
                 inner,
                 async |duration| tokio::time::sleep(duration).await,
@@ -915,6 +921,26 @@ mod tests {
         assert_eq!(
             response,
             "http://private.googleapis.com/test-only/session-123"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancel_resumable_write_malformed_bucket() -> anyhow::Result<()> {
+        let client = crate::client::Storage::builder()
+            .with_credentials(Anonymous::new().build())
+            .build()
+            .await?;
+
+        let err = client
+            .cancel_resumable_write("malformed-bucket", "session-123")
+            .await
+            .expect_err("should fail with binding error");
+
+        assert!(
+            err.to_string()
+                .contains("malformed bucket name, it must start with `projects/_/buckets/`"),
+            "unexpected error message: {err:?}"
         );
         Ok(())
     }

@@ -275,7 +275,7 @@ mod tests {
         let stub = crate::storage::transport::Storage::new_test(inner.clone());
         let builder = WriteObject::new(stub, "projects/_/buckets/bucket", want, "hello", options);
         let request = perform_upload(inner, builder)
-            .start_resumable_upload_request()
+            .test_start_resumable_upload_request()
             .await?
             .build_for_tests()
             .await?;
