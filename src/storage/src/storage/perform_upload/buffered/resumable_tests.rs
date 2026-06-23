@@ -1033,3 +1033,73 @@ async fn buffered_cancel_resumable_write_error() -> Result {
     assert_eq!(err.http_status_code(), Some(500));
     Ok(())
 }
+
+#[tokio::test]
+async fn buffered_resumable_continue_retry_state_transition() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-retry-transition");
+    let path = session.path().to_string();
+
+    // 1 & 3. Resumable query progress status calls
+    // GCS reports 256 bytes on first call, then 511 bytes on second call (after transient 503 retry).
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(2)
+        .respond_with(cycle![
+            status_code(308).append_header("range", "bytes=0-255"),
+            status_code(308).append_header("range", "bytes=0-511"),
+        ]),
+    );
+
+    // 2. First upload attempt (bytes 256..1000)
+    // GCS fails transiently with 503 Service Unavailable.
+    // However, GCS actually persisted up to byte 511 (256 bytes more).
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes 256-999/1000"))),
+        ])
+        .times(1)
+        .respond_with(status_code(503).body("Service Unavailable")),
+    );
+
+    // 4. Second upload attempt (bytes 512..1000)
+    // GCS successfully receives the remainder and returns 200 OK.
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes 512-999/1000"))),
+        ])
+        .times(1)
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .with_resumable_upload_buffer_size(2_000_usize) // Make buffer larger so entire payload is buffered
+        .build()
+        .await?;
+
+    let response = client
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
+        .send_buffered()
+        .await?;
+
+    assert_eq!(response.name, "test-object");
+    Ok(())
+}

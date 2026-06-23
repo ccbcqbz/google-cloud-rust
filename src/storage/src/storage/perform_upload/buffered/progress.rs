@@ -265,9 +265,9 @@ impl InProgressUpload {
                     skip -= n;
                     None
                 }
-                (s, n) => {
+                (s, _) => {
                     skip = 0;
-                    Some(b.split_off(n - s))
+                    Some(b.split_off(s))
                 }
             })
             .chain(self.remainder.drain(0..))

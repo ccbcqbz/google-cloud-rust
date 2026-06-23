@@ -126,8 +126,13 @@ where
             let builder = self
                 .partial_upload_request(upload_url, progress, should_send_checksum)
                 .await?;
-            // TODO(#4862) - maybe this should also use attempt_count ?
-            let response = builder.send(options, AttemptInfo::new(0)).await?;
+            let response = match builder.send(options, AttemptInfo::new(0)).await {
+                Ok(r) => r,
+                Err(e) => {
+                    progress.mark_needs_query();
+                    return Err(e.into());
+                }
+            };
             match super::query_resumable_upload_handle_response(response).await {
                 Err(e) => {
                     progress.mark_needs_query();
