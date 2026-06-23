@@ -43,7 +43,7 @@ pub struct PerformUpload<S> {
     spec: crate::model::WriteObjectSpec,
     params: Option<crate::model::CommonObjectRequestParams>,
     options: super::request_options::RequestOptions,
-    pub(crate) upload_id: Option<String>,
+    upload_id: Option<String>,
 }
 
 impl<S> PerformUpload<S> {

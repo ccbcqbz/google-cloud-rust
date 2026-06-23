@@ -20,6 +20,8 @@ pub mod builder {
 pub mod model {
     pub use crate::generated::gapic::model::*;
     pub use crate::generated::gapic_control::model::*;
+    pub use crate::model_ext::WriteObjectRequest;
+    pub use crate::model_ext::OpenObjectRequest;
 }
 pub mod client;
 /// Traits to mock the clients in this library.

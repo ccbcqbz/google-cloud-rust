@@ -340,17 +340,16 @@ impl super::stub::Storage for Storage {
         request: WriteObjectRequest,
     ) -> impl std::future::Future<Output = Result<String>> + Send {
         let inner_client = self.inner.clone();
-        let spec = request.spec;
-        let params = request.params;
+        let spec = std::sync::Arc::new(request.spec);
+        let params = std::sync::Arc::new(request.params);
         let options = self.inner.options.clone();
         let throttler = self.inner.options.retry_throttler.clone();
         let retry = self.inner.options.retry_policy.clone();
         let backoff = self.inner.options.backoff_policy.clone();
         let count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
         let inner_count = count.clone();
-        // The closure captures `spec` and `params` by value (async move).
-        // To ensure the returned future has a 'static lifetime and does not borrow from
-        // the closure's environment, we clone `spec` and `params` inside the async block.
+        // The closure captures `spec` and `params` Arcs by value (async move).
+        // Cloning the Arcs inside is a cheap pointer bump, satisfying the 'static lifetime requirement.
         let inner = async move |_| {
             let attempt = inner_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let spec = spec.clone();

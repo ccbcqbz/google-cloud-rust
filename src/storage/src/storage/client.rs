@@ -299,12 +299,17 @@ where
         self.stub.start_upload(request).await
     }
 
-    /// Continues an interrupted resumable upload session using its upload session ID/URI.
+    /// Continues an interrupted resumable upload session using its upload session URI.
+    ///
+    /// The `upload_id` must be the complete session URI (starting with `https://` or `http://`)
+    /// returned by `start_upload`.
     ///
     /// # Important
-    /// The caller must provide the complete payload starting from byte 0. The client library
-    /// automatically queries GCS for the current upload progress, seeks or skips the
-    /// already-persisted bytes, and resumes uploading from where it left off.
+    /// - The caller must provide the complete payload starting from byte 0. The client library
+    ///   automatically queries GCS for the current upload progress, seeks or skips the
+    ///   already-persisted bytes, and resumes uploading from where it left off.
+    /// - If resuming with `send_unbuffered()`, the payload `T` must implement `Seek` (seekable source)
+    ///   to allow the client library to seek directly to the resume offset.
     ///
     /// # Warning
     /// - Passing a stream that is already partially consumed will result in the client library
@@ -334,6 +339,9 @@ where
     }
 
     /// Cancels an active GCS resumable upload session.
+    ///
+    /// The `upload_id` must be the complete session URI (starting with `https://` or `http://`)
+    /// returned by `start_upload`.
     ///
     /// The `bucket` parameter is used for telemetry and routing metadata, while the
     /// actual request is routed using the `upload_id` session URI.
