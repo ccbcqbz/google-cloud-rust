@@ -43,6 +43,7 @@ pub struct PerformUpload<S> {
     spec: crate::model::WriteObjectSpec,
     params: Option<crate::model::CommonObjectRequestParams>,
     options: super::request_options::RequestOptions,
+    upload_id: Option<String>,
 }
 
 impl<S> PerformUpload<S> {
@@ -52,6 +53,7 @@ impl<S> PerformUpload<S> {
         spec: crate::model::WriteObjectSpec,
         params: Option<crate::model::CommonObjectRequestParams>,
         options: super::request_options::RequestOptions,
+        upload_id: Option<String>,
     ) -> Self {
         let checksum = options.checksum.clone();
         Self {
@@ -60,7 +62,12 @@ impl<S> PerformUpload<S> {
             spec,
             params,
             options,
+            upload_id,
         }
+    }
+
+    pub(crate) fn upload_id(&self) -> Option<&str> {
+        self.upload_id.as_deref()
     }
 
     fn resource(&self) -> &crate::model::Object {
@@ -70,46 +77,23 @@ impl<S> PerformUpload<S> {
             .expect("resource field initialized in `new()`")
     }
 
-    async fn start_resumable_upload_attempt(&self, attempt_count: u32) -> Result<String> {
-        let builder = self.start_resumable_upload_request().await?;
-        let options = self.options.gax();
-        let options = options
-            .insert_extension(PathTemplate("/upload/storage/v1/b/{bucket}/o"))
-            .insert_extension(ResourceName(format!(
-                "//storage.googleapis.com/{}",
-                self.resource().bucket
-            )));
-        let response = builder
-            .send(options, AttemptInfo::new(attempt_count))
-            .await
-            .map_err(Error::io)?;
-        self::handle_start_resumable_upload_response(response).await
+    pub(crate) async fn start_resumable_upload_attempt(
+        &self,
+        attempt_count: u32,
+    ) -> Result<String> {
+        self::start_resumable_upload_attempt(
+            &self.inner,
+            &self.spec,
+            &self.params,
+            &self.options,
+            attempt_count,
+        )
+        .await
     }
 
-    async fn start_resumable_upload_request(&self) -> Result<HttpRequestBuilder> {
-        let bucket = &self.resource().bucket;
-        let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
-            Error::binding(format!(
-                "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
-            ))
-        })?;
-        let object = &self.resource().name;
-        let builder = self
-            .inner
-            .client
-            .http_builder(Method::POST, &format!("/upload/storage/v1/b/{bucket_id}/o"))
-            .query("uploadType", "resumable")
-            .query("name", object)
-            .header("content-type", "application/json")
-            .header(
-                "x-goog-api-client",
-                HeaderValue::from_static(&X_GOOG_API_CLIENT_HEADER),
-            );
-
-        let builder = self.apply_preconditions(builder);
-        let builder = apply_customer_supplied_encryption_headers(builder, &self.params);
-        let builder = builder.body(v1::insert_body(self.resource()).to_string());
-        Ok(builder)
+    #[cfg(test)]
+    pub(crate) async fn test_start_resumable_upload_request(&self) -> Result<HttpRequestBuilder> {
+        self::start_resumable_upload_request(&self.inner, &self.spec, &self.params).await
     }
 
     async fn query_resumable_upload_attempt(
@@ -142,39 +126,94 @@ impl<S> PerformUpload<S> {
             .map_err(Error::io)?;
         self::query_resumable_upload_handle_response(response).await
     }
+}
 
-    fn apply_preconditions(&self, builder: HttpRequestBuilder) -> HttpRequestBuilder {
-        let builder = self
-            .spec
-            .if_generation_match
-            .iter()
-            .fold(builder, |b, v| b.query("ifGenerationMatch", v));
-        let builder = self
-            .spec
-            .if_generation_not_match
-            .iter()
-            .fold(builder, |b, v| b.query("ifGenerationNotMatch", v));
-        let builder = self
-            .spec
-            .if_metageneration_match
-            .iter()
-            .fold(builder, |b, v| b.query("ifMetagenerationMatch", v));
-        let builder = self
-            .spec
-            .if_metageneration_not_match
-            .iter()
-            .fold(builder, |b, v| b.query("ifMetagenerationNotMatch", v));
+pub(crate) async fn start_resumable_upload_attempt(
+    inner: &Arc<StorageInner>,
+    spec: &crate::model::WriteObjectSpec,
+    params: &Option<crate::model::CommonObjectRequestParams>,
+    options: &super::request_options::RequestOptions,
+    attempt_count: u32,
+) -> Result<String> {
+    let builder = start_resumable_upload_request(inner, spec, params).await?;
+    let resource = spec.resource.as_ref().expect("resource field initialized");
+    let options = options.gax();
+    let options = options
+        .insert_extension(PathTemplate("/upload/storage/v1/b/{bucket}/o"))
+        .insert_extension(ResourceName(format!(
+            "//storage.googleapis.com/{}",
+            resource.bucket
+        )));
+    let response = builder
+        .send(options, AttemptInfo::new(attempt_count))
+        .await
+        .map_err(Error::io)?;
+    self::handle_start_resumable_upload_response(response).await
+}
 
-        [
-            ("kmsKeyName", self.resource().kms_key.as_str()),
-            ("predefinedAcl", self.spec.predefined_acl.as_str()),
-        ]
-        .into_iter()
-        .fold(
-            builder,
-            |b, (k, v)| if v.is_empty() { b } else { b.query(k, v) },
-        )
-    }
+async fn start_resumable_upload_request(
+    inner: &Arc<StorageInner>,
+    spec: &crate::model::WriteObjectSpec,
+    params: &Option<crate::model::CommonObjectRequestParams>,
+) -> Result<HttpRequestBuilder> {
+    let resource = spec.resource.as_ref().ok_or_else(|| {
+        Error::binding("WriteObjectSpec resource field is not initialized")
+    })?;
+    let bucket = &resource.bucket;
+    let bucket_id = bucket.strip_prefix("projects/_/buckets/").ok_or_else(|| {
+        Error::binding(format!(
+            "malformed bucket name, it must start with `projects/_/buckets/`: {bucket}"
+        ))
+    })?;
+    let object = &resource.name;
+    let builder = inner
+        .client
+        .http_builder(Method::POST, &format!("/upload/storage/v1/b/{bucket_id}/o"))
+        .query("uploadType", "resumable")
+        .query("name", object)
+        .header("content-type", "application/json")
+        .header(
+            "x-goog-api-client",
+            HeaderValue::from_static(&X_GOOG_API_CLIENT_HEADER),
+        );
+
+    let builder = apply_preconditions(builder, spec, resource);
+    let builder = apply_customer_supplied_encryption_headers(builder, params);
+    let builder = builder.body(v1::insert_body(resource).to_string());
+    Ok(builder)
+}
+
+fn apply_preconditions(
+    builder: HttpRequestBuilder,
+    spec: &crate::model::WriteObjectSpec,
+    resource: &crate::model::Object,
+) -> HttpRequestBuilder {
+    let builder = spec
+        .if_generation_match
+        .iter()
+        .fold(builder, |b, v| b.query("ifGenerationMatch", v));
+    let builder = spec
+        .if_generation_not_match
+        .iter()
+        .fold(builder, |b, v| b.query("ifGenerationNotMatch", v));
+    let builder = spec
+        .if_metageneration_match
+        .iter()
+        .fold(builder, |b, v| b.query("ifMetagenerationMatch", v));
+    let builder = spec
+        .if_metageneration_not_match
+        .iter()
+        .fold(builder, |b, v| b.query("ifMetagenerationNotMatch", v));
+
+    [
+        ("kmsKeyName", resource.kms_key.as_str()),
+        ("predefinedAcl", spec.predefined_acl.as_str()),
+    ]
+    .into_iter()
+    .fold(
+        builder,
+        |b, (k, v)| if v.is_empty() { b } else { b.query(k, v) },
+    )
 }
 
 async fn handle_start_resumable_upload_response(response: Response) -> Result<String> {

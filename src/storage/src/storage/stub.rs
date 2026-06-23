@@ -51,6 +51,7 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
         &self,
         _payload: P,
         _req: WriteObjectRequest,
+        _upload_id: Option<String>,
         _options: RequestOptions,
     ) -> impl std::future::Future<Output = Result<Object>> + Send
     where
@@ -64,6 +65,7 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
         &self,
         _payload: P,
         _req: WriteObjectRequest,
+        _upload_id: Option<String>,
         _options: RequestOptions,
     ) -> impl std::future::Future<Output = Result<Object>> + Send
     where
@@ -80,6 +82,25 @@ pub trait Storage: std::fmt::Debug + Send + Sync {
     ) -> impl std::future::Future<Output = Result<(Descriptor, Vec<ReadObjectResponse>)>> + Send
     {
         unimplemented_stub::<(Descriptor, Vec<ReadObjectResponse>)>()
+    }
+
+    /// Implements [crate::client::Storage::start_upload].
+    fn start_upload(
+        &self,
+        _request: WriteObjectRequest,
+    ) -> impl std::future::Future<Output = Result<String>> + Send {
+        unimplemented_stub::<String>()
+    }
+
+    /// Implements [crate::client::Storage::cancel_resumable_write].
+    fn cancel_resumable_write(
+        &self,
+        bucket: String,
+        upload_id: String,
+    ) -> impl std::future::Future<Output = Result<()>> + Send {
+        let _ = bucket;
+        let _ = upload_id;
+        unimplemented_stub::<()>()
     }
 }
 

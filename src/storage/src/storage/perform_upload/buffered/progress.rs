@@ -20,9 +20,18 @@ use crate::error::WriteError;
 use futures::stream::unfold;
 use gaxi::http::reqwest::Body;
 use std::collections::VecDeque;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum UploadState {
+    #[default]
+    New,
+    Resuming,
+    Active,
+}
 
 #[derive(Clone, Default)]
 pub struct InProgressUpload {
+    /// Tracks the state of the resumable upload process.
+    state: UploadState,
     /// The target size for each PUT request.
     ///
     /// The last PUT request may be smaller. This must be a multiple of 256KiB
@@ -47,6 +56,10 @@ pub struct InProgressUpload {
     remainder: VecDeque<bytes::Bytes>,
     /// Indicates if the source stream has ended.
     source_ended: bool,
+    /// The number of bytes to skip from the payload stream (used when resuming).
+    skip_bytes: u64,
+    /// The total number of bytes read from the payload stream during skipping.
+    total_bytes_read_during_skip: u64,
 }
 
 struct Summary<'a>(&'a VecDeque<bytes::Bytes>);
@@ -112,10 +125,48 @@ impl InProgressUpload {
                 .is_some_and(|len| self.offset + self.buffer_size as u64 == len)
     }
 
+    fn skip_from_chunk(&mut self, mut chunk: bytes::Bytes) {
+        let len = chunk.len() as u64;
+        if len <= self.skip_bytes {
+            self.total_bytes_read_during_skip += len;
+            self.skip_bytes -= len;
+        } else {
+            self.total_bytes_read_during_skip += self.skip_bytes;
+            let skip_idx = usize::try_from(self.skip_bytes)
+                .expect("skip_bytes must fit in usize since it is less than chunk.len()");
+            self.remainder.push_front(chunk.split_off(skip_idx));
+            self.skip_bytes = 0;
+        }
+    }
+
     pub async fn next_buffer<S>(&mut self, payload: &mut S) -> Result<()>
     where
         S: StreamingSource,
     {
+        if self.skip_bytes > 0 {
+            debug_assert!(
+                self.remainder.is_empty(),
+                "remainder must be empty during initial resume setup"
+            );
+        }
+
+        while self.skip_bytes > 0 {
+            if let Some(b) = self.remainder.pop_front() {
+                self.skip_from_chunk(b);
+            } else if let Some(b) = payload.next().await.transpose().map_err(Error::ser)? {
+                self.skip_from_chunk(b);
+            } else {
+                return Err(Error::ser(WriteError::PayloadUnderflow {
+                    expected_offset: self.offset,
+                    local_bytes_read: self.total_bytes_read_during_skip,
+                }));
+            }
+        }
+
+        if self.state == UploadState::New {
+            self.state = UploadState::Active;
+        }
+
         let mut buffer = VecDeque::new();
         let mut size = 0;
         let mut process_buffer = |mut b: bytes::Bytes| match b.len() {
@@ -184,6 +235,12 @@ impl InProgressUpload {
         Body::wrap_stream(stream)
     }
 
+    pub fn handle_resume_query(&mut self, persisted_size: u64) {
+        self.persisted_size = Some(persisted_size);
+        self.offset = persisted_size;
+        self.skip_bytes = persisted_size;
+    }
+
     pub fn handle_partial(&mut self, persisted_size: u64) -> Result<()> {
         let consumed = match (self.offset, self.buffer_size as u64, persisted_size) {
             (o, _, p) if p < o => Err(WriteError::UnexpectedRewind {
@@ -208,9 +265,9 @@ impl InProgressUpload {
                     skip -= n;
                     None
                 }
-                (s, n) => {
+                (s, _) => {
                     skip = 0;
-                    Some(b.split_off(n - s))
+                    Some(b.split_off(s))
                 }
             })
             .chain(self.remainder.drain(0..))
@@ -220,7 +277,36 @@ impl InProgressUpload {
         Ok(())
     }
 
-    pub fn handle_error(&mut self) {
+    pub fn mark_as_resuming(&mut self) {
+        self.state = UploadState::Resuming;
+        self.persisted_size = None;
+    }
+
+    /// Applies the progress query result from GCS (the count of bytes persisted).
+    ///
+    /// - If the state is `Resuming`, this is the initial query on a resumed upload.
+    ///   We call `handle_resume_query` to skip the persisted bytes directly from the
+    ///   input stream payload.
+    /// - Otherwise (when state is `Active`), this is a mid-upload retry. We call
+    ///   `handle_partial` to rewind our local buffers and skip only the partially
+    ///   persisted bytes from our current chunk window.
+    pub fn apply_query_result(&mut self, persisted_size: u64) -> Result<()> {
+        if self.state == UploadState::Resuming {
+            self.handle_resume_query(persisted_size);
+            self.state = UploadState::Active;
+        } else {
+            self.handle_partial(persisted_size)?;
+            self.state = UploadState::Active;
+        }
+        Ok(())
+    }
+
+    /// Marks the progress tracker as needing a query before sending the next chunk.
+    ///
+    /// This clears the known `persisted_size`, forcing `needs_query()` to return true.
+    /// It keeps the state as `Active` because any subsequent query is a mid-upload
+    /// retry (handling partial offsets), not an initial resume.
+    pub fn mark_needs_query(&mut self) {
         self.persisted_size = None;
     }
 }
@@ -679,11 +765,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_error() -> Result {
+    async fn mark_needs_query() -> Result {
         let mut payload = Payload::from("");
         let mut upload = InProgressUpload::fake(0);
         upload.next_buffer(&mut payload).await?;
-        upload.handle_error();
+        upload.mark_needs_query();
         assert!(upload.needs_query(), "{upload:?}");
         Ok(())
     }

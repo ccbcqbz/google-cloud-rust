@@ -77,11 +77,16 @@
 //! [Seek]: crate::streaming_source::Seek
 
 use crate::model_ext::{KeyAes256, tests::create_key_helper};
-use crate::storage::client::{Storage, tests::test_builder};
+use crate::storage::client::{
+    Storage,
+    tests::{test_builder, MockBackoffPolicy, MockRetryPolicy, MockRetryThrottler},
+};
 use crate::streaming_source::{BytesSource, SizeHint, tests::UnknownSize};
 use gaxi::http::reqwest::Response;
 use google_cloud_auth::credentials::anonymous::Builder as Anonymous;
 use google_cloud_gax::retry_policy::RetryPolicyExt;
+use google_cloud_gax::retry_result::RetryResult;
+use std::time::Duration;
 use httptest::{Expectation, Server, matchers::*, responders::*};
 use serde_json::{Value, json};
 
@@ -159,7 +164,7 @@ async fn resumable_empty_success() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_empty_unknown() -> Result {
+async fn unbuffered_resumable_empty_unknown() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-001");
     let path = session.path().to_string();
@@ -346,7 +351,7 @@ async fn source_seek_error() -> Result {
 }
 
 #[tokio::test]
-async fn source_next_error() -> Result {
+async fn unbuffered_source_next_error() -> Result {
     let server = Server::run();
     let session = server.url("/upload/session/test-only-001");
     server.expect(
@@ -391,7 +396,7 @@ async fn source_next_error() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_start_permanent_error() -> Result {
+async fn unbuffered_start_permanent_error() -> Result {
     let server = Server::run();
     server.expect(
         Expectation::matching(all_of![
@@ -424,7 +429,7 @@ async fn resumable_start_permanent_error() -> Result {
 }
 
 #[tokio::test]
-async fn resumable_start_too_many_transients() -> Result {
+async fn unbuffered_start_too_many_transients() -> Result {
     let server = Server::run();
     server.expect(
         Expectation::matching(all_of![
@@ -881,5 +886,281 @@ async fn resumable_upload_handle_response_deser() -> Result {
         .await
         .expect_err("bad format should return errors");
     assert!(err.is_deserialization(), "{err:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn unbuffered_resumable_continue_with_upload_id_success() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-001");
+    let path = session.path().to_string();
+
+    // 1. The query status request
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(1)
+        .respond_with(status_code(308).append_header("range", "bytes=0-255")),
+    );
+
+    // 2. The PUT data request
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes 256-999/1000"))),
+        ])
+        .times(1)
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let response = client
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
+        .send_unbuffered()
+        .await?;
+
+    assert_eq!(response.name, "test-object");
+    Ok(())
+}
+
+#[tokio::test]
+async fn unbuffered_resumable_delete_session_success() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-001");
+    let path = session.path().to_string();
+
+    // GCS returns 499 (Client Closed Request) for successfully cancelled/deleted
+    // resumable upload sessions. The client library treats 499 as success.
+    server.expect(
+        Expectation::matching(all_of![request::method_path("DELETE", path.clone()),])
+            .times(1)
+            .respond_with(status_code(499)),
+    );
+
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .build()
+        .await?;
+
+    client
+        .cancel_resumable_write("projects/_/buckets/test-bucket", &session.to_string())
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn unbuffered_resumable_continue_payload_underflow() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-underflow");
+    let path = session.path().to_string();
+
+    // 1. The query status request
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(1)
+        .respond_with(status_code(308).append_header("range", "bytes=0-499")),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 100]); // Shorter than range query progress (500)
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let err = client
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
+        .send_unbuffered()
+        .await
+        .expect_err("should fail with PayloadUnderflow");
+
+    assert!(
+        err.to_string()
+            .contains("the payload stream was exhausted before reaching the resume offset 500 (read only 100 bytes locally)"),
+        "error must describe the payload underflow: {err:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn unbuffered_resumable_continue_already_completed() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-completed");
+    let path = session.path().to_string();
+
+    // 1. The query status request returns 200 or 201 with final object metadata
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(1)
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let response = client
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
+        .send_unbuffered()
+        .await?;
+
+    assert_eq!(response.name, "test-object");
+    Ok(())
+}
+
+#[tokio::test]
+async fn unbuffered_resumable_continue_no_progress() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-no-progress");
+    let path = session.path().to_string();
+
+    // 1. The query status request
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */*"))),
+            request::headers(contains(("content-length", "0"))),
+        ])
+        .times(1)
+        .respond_with(status_code(308)), // No Range header => progress is 0
+    );
+
+    // 2. The PUT data request starting from byte 0
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes 0-999/1000"))),
+        ])
+        .times(1)
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
+    );
+
+    let payload = bytes::Bytes::from_owner(vec![0_u8; 1_000]);
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let response = client
+        .continue_upload(
+            "projects/_/buckets/test-bucket",
+            "test-object",
+            session.to_string(),
+            payload,
+        )
+        .send_unbuffered()
+        .await?;
+
+    assert_eq!(response.name, "test-object");
+    Ok(())
+}
+
+#[tokio::test]
+async fn unbuffered_cancel_resumable_write_retry() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-cancel-retry");
+    let path = session.path().to_string();
+
+    // 1. The first cancel request returns 503 (transient)
+    // 2. The second cancel request returns 499 (success)
+    server.expect(
+        Expectation::matching(all_of![request::method_path("DELETE", path.clone()),])
+            .times(2)
+            .respond_with(cycle![
+                status_code(503).body("Service Unavailable"),
+                status_code(499),
+            ]),
+    );
+
+    let mut retry = MockRetryPolicy::new();
+    retry
+        .expect_on_error()
+        .times(1)
+        .returning(|_, e| {
+            if e.http_status_code() == Some(503) {
+                RetryResult::Continue(e)
+            } else {
+                RetryResult::Permanent(e)
+            }
+        });
+
+    let mut backoff = MockBackoffPolicy::new();
+    backoff
+        .expect_on_failure()
+        .times(1)
+        .return_const(Duration::from_millis(0));
+
+    let mut throttler = MockRetryThrottler::new();
+    throttler
+        .expect_throttle_retry_attempt()
+        .times(1)
+        .return_const(false);
+    throttler
+        .expect_on_retry_failure()
+        .times(1)
+        .return_const(());
+    throttler.expect_on_success().times(1).return_const(());
+
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_retry_policy(retry)
+        .with_backoff_policy(backoff)
+        .with_retry_throttler(throttler)
+        .build()
+        .await?;
+
+    client
+        .cancel_resumable_write("projects/_/buckets/test-bucket", session.to_string())
+        .await?;
+
     Ok(())
 }

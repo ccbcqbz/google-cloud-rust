@@ -15,8 +15,9 @@
 use super::{
     ContinueOn308, Error, Object, PerformUpload, Result, ResumableUploadStatus, Seek, SizeHint,
     StreamingSource, X_GOOG_API_CLIENT_HEADER, apply_customer_supplied_encryption_headers,
-    handle_object_response, v1,
+    handle_object_response, v1, apply_preconditions,
 };
+use crate::error::WriteError;
 use futures::stream::unfold;
 use gaxi::attempt_info::AttemptInfo;
 use gaxi::http::HttpRequestBuilder;
@@ -47,7 +48,10 @@ where
     }
 
     async fn send_unbuffered_resumable(self, hint: SizeHint) -> Result<Object> {
-        let mut upload_url = None;
+        // Unlike the buffered path, we do not need to initialize progress tracking state
+        // (like `mark_as_resuming`) because the unbuffered path uses seekable payloads (impl Seek)
+        // and seeks the stream directly to the resume offset in `resumable_attempt`.
+        let mut upload_url = self.upload_id().map(String::from);
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let backoff = self.options.backoff_policy.clone();
@@ -75,6 +79,10 @@ where
         hint: SizeHint,
         attempt_count: u32,
     ) -> Result<Object> {
+        // The unbuffered path utilizes seekable payloads (impl Seek). During a resume,
+        // it queries the server for the persisted size (offset) and directly seeks the
+        // payload stream to that offset, bypassing the need for manual byte-skipping logic
+        // and progress tracking state machines.
         let (offset, upload_url) = if let Some(upload_url) = url.as_deref() {
             match self
                 .query_resumable_upload_attempt(upload_url, attempt_count)
@@ -89,6 +97,18 @@ where
             let upload_url = self.start_resumable_upload_attempt(attempt_count).await?;
             (0_u64, url.insert(upload_url).as_str())
         };
+
+        // We can only check for underflow if the exact size of the payload is known.
+        // If the size is unknown, the check is skipped and the request will proceed,
+        // likely failing with a less descriptive HTTP error if the stream ends prematurely.
+        if let Some(size) = hint.exact() {
+            if offset > size {
+                return Err(Error::ser(WriteError::PayloadUnderflow {
+                    expected_offset: offset,
+                    local_bytes_read: size,
+                }));
+            }
+        }
 
         let range = match (offset, hint.exact()) {
             (o, None) => format!("bytes {o}-*/*"),
@@ -192,7 +212,7 @@ where
                 HeaderValue::from_static(&X_GOOG_API_CLIENT_HEADER),
             );
 
-        let builder = self.apply_preconditions(builder);
+        let builder = apply_preconditions(builder, &self.spec, self.resource());
         let builder = apply_customer_supplied_encryption_headers(builder, &self.params);
 
         let metadata = multipart::Part::text(v1::insert_body(self.resource()).to_string())

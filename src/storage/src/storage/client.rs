@@ -15,6 +15,7 @@
 use super::request_options::RequestOptions;
 use crate::builder::storage::ReadObject;
 use crate::builder::storage::WriteObject;
+use crate::model_ext::WriteObjectRequest;
 use crate::read_resume_policy::ReadResumePolicy;
 use crate::storage::bidi::OpenObject;
 use crate::storage::common_options::CommonOptions;
@@ -274,6 +275,102 @@ where
         O: Into<String>,
     {
         OpenObject::new(self.stub.clone(), bucket, object, self.options.clone())
+    }
+
+    /// Starts a resumable upload session on GCS, returning the upload session ID/URI.
+    pub async fn start_upload<B, O>(&self, bucket: B, object: O) -> crate::Result<String>
+    where
+        B: Into<String>,
+        O: Into<String>,
+    {
+        let resource = crate::model::Object::new()
+            .set_bucket(bucket.into())
+            .set_name(object.into());
+        let spec = crate::model::WriteObjectSpec::new().set_resource(resource);
+        let request = WriteObjectRequest { spec, params: None };
+        self.start_upload_with_request(request).await
+    }
+
+    /// Starts a resumable upload session on GCS with a full `WriteObjectRequest`, returning the upload session ID/URI.
+    pub async fn start_upload_with_request(
+        &self,
+        request: WriteObjectRequest,
+    ) -> crate::Result<String> {
+        self.stub.start_upload(request).await
+    }
+
+    /// Continues an interrupted resumable upload session using its upload session URI.
+    ///
+    /// The `upload_id` must be the complete session URI (starting with `https://` or `http://`)
+    /// returned by `start_upload`.
+    ///
+    /// # Important
+    /// - The caller must provide the complete payload starting from byte 0. The client library
+    ///   automatically queries GCS for the current upload progress, seeks or skips the
+    ///   already-persisted bytes, and resumes uploading from where it left off.
+    /// - If resuming with `send_unbuffered()`, the payload `T` must implement `Seek` (seekable source)
+    ///   to allow the client library to seek directly to the resume offset.
+    ///
+    /// # Warning
+    /// - Passing a stream that is already partially consumed will result in the client library
+    ///   skipping incorrect bytes, causing data corruption. The source payload must represent
+    ///   the full object content starting from the beginning.
+    /// - The `bucket` and `object` parameters must exactly match the bucket and object specified
+    ///   when the resumable upload session was created. Mismatching parameters can cause routing,
+    ///   telemetry, or access control failures.
+    /// - Chaining metadata-modifying methods (such as `.set_content_type()`, `.set_metadata()`,
+    ///   etc.) on the returned `WriteObject` builder is a no-op on GCS for a resumed session, as
+    ///   metadata options are finalized when the session is initiated.
+    pub fn continue_upload<B, O, U, T, P>(
+        &self,
+        bucket: B,
+        object: O,
+        upload_id: U,
+        payload: T,
+    ) -> WriteObject<P, S>
+    where
+        B: Into<String>,
+        O: Into<String>,
+        U: Into<String>,
+        T: Into<Payload<P>>,
+    {
+        self.write_object(bucket, object, payload)
+            .with_upload_id(upload_id.into())
+    }
+
+    /// Cancels an active GCS resumable upload session.
+    ///
+    /// The `upload_id` must be the complete session URI (starting with `https://` or `http://`)
+    /// returned by `start_upload`.
+    ///
+    /// The `bucket` parameter is used for telemetry and routing metadata, while the
+    /// actual request is routed using the `upload_id` session URI.
+    ///
+    /// # Warning
+    /// The `bucket` parameter must exactly match the bucket specified when the resumable upload
+    /// session was created. Mismatching bucket names can cause incorrect routing, telemetry, or
+    /// access control failures.
+    ///
+    /// Note that the library does not validate the bucket parameter against the session URI.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client = google_cloud_storage::client::Storage::builder().build().await?;
+    /// let session_uri = "https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?upload_id=session-id";
+    /// client.cancel_resumable_write("projects/_/buckets/my-bucket", session_uri).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn cancel_resumable_write<B, U>(&self, bucket: B, upload_id: U) -> crate::Result<()>
+    where
+        B: Into<String>,
+        U: Into<String>,
+    {
+        self.stub
+            .cancel_resumable_write(bucket.into(), upload_id.into())
+            .await
     }
 }
 

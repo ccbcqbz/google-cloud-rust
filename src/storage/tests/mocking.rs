@@ -41,12 +41,14 @@ mod tests {
                 &self,
                 _payload: P,
                 _req: WriteObjectRequest,
+                _upload_id: Option<String>,
                 _options: RequestOptions,
             ) -> Result<Object>;
             async fn write_object_unbuffered<P: StreamingSource + Seek + Send + Sync + 'static>(
                 &self,
                 _payload: P,
                 _req: WriteObjectRequest,
+                _upload_id: Option<String>,
                 _options: RequestOptions,
             ) -> Result<Object>;
             async fn open_object(
@@ -146,10 +148,11 @@ mod tests {
     #[tokio::test]
     async fn mock_write_object_buffered() {
         let mut mock = MockStorage::new();
-        mock.expect_write_object_buffered()
-            .return_once(|_payload: Payload<BytesSource>, _, _| {
+        mock.expect_write_object_buffered().return_once(
+            |_payload: Payload<BytesSource>, _, _, _| {
                 Err(Error::service(Status::default().set_code(Code::Aborted)))
-            });
+            },
+        );
         let client = gcs::client::Storage::from_stub(mock);
         let _ = client
             .write_object("projects/_/buckets/my-bucket", "my-object", "hello")
@@ -162,7 +165,7 @@ mod tests {
     async fn mock_write_object_unbuffered() {
         let mut mock = MockStorage::new();
         mock.expect_write_object_unbuffered().return_once(
-            |_payload: Payload<BytesSource>, _, _| {
+            |_payload: Payload<BytesSource>, _, _, _| {
                 Err(Error::service(Status::default().set_code(Code::Aborted)))
             },
         );

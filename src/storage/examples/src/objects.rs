@@ -14,6 +14,7 @@
 
 #[allow(dead_code)]
 pub mod add_file_owner;
+pub mod application_resumable_upload;
 pub mod change_file_storage_class;
 pub mod compose_file;
 pub mod copy_file;

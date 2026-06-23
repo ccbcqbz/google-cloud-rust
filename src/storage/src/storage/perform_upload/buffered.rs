@@ -55,7 +55,10 @@ where
 
     async fn send_buffered_resumable(self, hint: SizeHint) -> Result<Object> {
         let mut progress = InProgressUpload::new(self.options.resumable_upload_buffer_size(), hint);
-        let mut url = None;
+        if self.upload_id().is_some() {
+            progress.mark_as_resuming();
+        }
+        let mut url = self.upload_id().map(String::from);
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let backoff = self.options.backoff_policy.clone();
@@ -101,7 +104,7 @@ where
                     if persisted_size > 0 {
                         is_partial_resume = true;
                     }
-                    progress.handle_partial(persisted_size)?;
+                    progress.apply_query_result(persisted_size)?;
                 }
             };
         }
@@ -123,11 +126,16 @@ where
             let builder = self
                 .partial_upload_request(upload_url, progress, should_send_checksum)
                 .await?;
-            // TODO(#4862) - maybe this should also use attempt_count ?
-            let response = builder.send(options, AttemptInfo::new(0)).await?;
+            let response = match builder.send(options, AttemptInfo::new(0)).await {
+                Ok(r) => r,
+                Err(e) => {
+                    progress.mark_needs_query();
+                    return Err(e.into());
+                }
+            };
             match super::query_resumable_upload_handle_response(response).await {
                 Err(e) => {
-                    progress.handle_error();
+                    progress.mark_needs_query();
                     return Err(e);
                 }
                 Ok(ResumableUploadStatus::Finalized(object)) => {
@@ -204,6 +212,7 @@ where
             spec: self.spec,
             params: self.params,
             options: self.options,
+            upload_id: None,
         };
         upload
             .send_unbuffered_single_shot(SizeHint::with_exact(exact))
@@ -271,7 +280,7 @@ mod tests {
         let stub = crate::storage::transport::Storage::new_test(inner.clone());
         let builder = WriteObject::new(stub, "projects/_/buckets/bucket", want, "hello", options);
         let request = perform_upload(inner, builder)
-            .start_resumable_upload_request()
+            .test_start_resumable_upload_request()
             .await?
             .build_for_tests()
             .await?;

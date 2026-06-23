@@ -80,6 +80,7 @@ where
     pub(crate) request: crate::model_ext::WriteObjectRequest,
     pub(crate) payload: Payload<T>,
     pub(crate) options: RequestOptions,
+    pub(crate) upload_id: Option<String>,
 }
 
 impl<T, S> WriteObject<T, S>
@@ -805,6 +806,15 @@ where
         self
     }
 
+    /// Sets the upload ID/session URI for resuming a resumable upload.
+    ///
+    /// This is `pub(crate)` to prevent callers from setting the upload ID directly on
+    /// a new upload, enforcing `continue_upload` as the canonical public API.
+    pub(crate) fn with_upload_id<V: Into<String>>(mut self, v: V) -> Self {
+        self.upload_id = Some(v.into());
+        self
+    }
+
     /// Sets the `User-Agent` header for this request.
     ///
     /// # Example
@@ -994,6 +1004,7 @@ where
             },
             payload: payload.into(),
             options,
+            upload_id: None,
         }
     }
 }
@@ -1020,7 +1031,7 @@ where
     /// ```
     pub async fn send_unbuffered(self) -> Result<Object> {
         self.stub
-            .write_object_unbuffered(self.payload, self.request, self.options)
+            .write_object_unbuffered(self.payload, self.request, self.upload_id, self.options)
             .await
     }
 
@@ -1107,7 +1118,7 @@ where
     /// ```
     pub async fn send_buffered(self) -> crate::Result<Object> {
         self.stub
-            .write_object_buffered(self.payload, self.request, self.options)
+            .write_object_buffered(self.payload, self.request, self.upload_id, self.options)
             .await
     }
 }

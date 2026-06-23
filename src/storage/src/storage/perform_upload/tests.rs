@@ -48,6 +48,7 @@ pub(crate) fn perform_upload<T>(
         builder.request.spec,
         builder.request.params,
         builder.options,
+        builder.upload_id,
     )
 }
 
@@ -64,7 +65,7 @@ async fn start_resumable_upload() -> Result {
         options,
     );
     let mut request = perform_upload(inner, builder)
-        .start_resumable_upload_request()
+        .test_start_resumable_upload_request()
         .await?
         .build_for_tests()
         .await?;
@@ -98,7 +99,7 @@ async fn start_resumable_upload_headers() -> Result {
     )
     .set_key(KeyAes256::new(&key)?);
     let request = perform_upload(inner, builder)
-        .start_resumable_upload_request()
+        .test_start_resumable_upload_request()
         .await?
         .build_for_tests()
         .await?;
@@ -131,7 +132,7 @@ async fn start_resumable_upload_bad_bucket() -> Result {
     let stub = crate::storage::transport::Storage::new_test(inner.clone());
     let builder = WriteObject::new(stub, "malformed", "object", "hello", options);
     let _ = perform_upload(inner, builder)
-        .start_resumable_upload_request()
+        .test_start_resumable_upload_request()
         .await
         .expect_err("malformed bucket string should error");
     Ok(())
@@ -171,7 +172,7 @@ async fn start_resumable_upload_metadata_in_request() -> Result {
         .with_known_crc32c(crc32c::crc32c(b""))
         .with_known_md5_hash(md5::compute(b"").0);
     let mut request = perform_upload(inner, builder)
-        .start_resumable_upload_request()
+        .test_start_resumable_upload_request()
         .await?
         .build_for_tests()
         .await?;
@@ -235,7 +236,7 @@ async fn start_resumable_upload_credentials() -> Result {
         options,
     );
     let _ = perform_upload(inner, builder)
-        .start_resumable_upload_request()
+        .test_start_resumable_upload_request()
         .await?
         .build_for_tests()
         .await
