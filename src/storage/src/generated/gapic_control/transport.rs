@@ -158,7 +158,14 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(options, true);
+        let is_conditionally_safe =
+            req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::resolve_idempotency(
+            options,
+            crate::idempotency::IdempotencyPolicy::default(),
+            is_conditionally_safe,
+            true,
+        );
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -253,7 +260,14 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(options, true);
+        let is_conditionally_safe =
+            req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::resolve_idempotency(
+            options,
+            crate::idempotency::IdempotencyPolicy::default(),
+            is_conditionally_safe,
+            true,
+        );
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -432,7 +446,14 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(options, true);
+        let is_conditionally_safe =
+            req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::resolve_idempotency(
+            options,
+            crate::idempotency::IdempotencyPolicy::default(),
+            is_conditionally_safe,
+            true,
+        );
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -527,7 +548,14 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(options, true);
+        let is_conditionally_safe =
+            req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::resolve_idempotency(
+            options,
+            crate::idempotency::IdempotencyPolicy::default(),
+            is_conditionally_safe,
+            true,
+        );
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -790,7 +818,14 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(options, true);
+        let is_conditionally_safe =
+            req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::resolve_idempotency(
+            options,
+            crate::idempotency::IdempotencyPolicy::default(),
+            is_conditionally_safe,
+            true,
+        );
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -874,7 +909,14 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(options, true);
+        let is_conditionally_safe =
+            req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::resolve_idempotency(
+            options,
+            crate::idempotency::IdempotencyPolicy::default(),
+            is_conditionally_safe,
+            true,
+        );
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -1031,7 +1073,14 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(options, false);
+        let is_conditionally_safe =
+            req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::resolve_idempotency(
+            options,
+            crate::idempotency::IdempotencyPolicy::default(),
+            is_conditionally_safe,
+            true,
+        );
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(

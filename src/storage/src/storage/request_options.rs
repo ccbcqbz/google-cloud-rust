@@ -118,6 +118,11 @@ impl RequestOptions {
         self.common_options.resumable_upload_buffer_size
     }
 
+    /// Returns the idempotency policy.
+    pub fn idempotency_policy(&self) -> crate::idempotency::IdempotencyPolicy {
+        self.common_options.idempotency_policy
+    }
+
     /// Appends a user agent string to the request.
     pub fn with_user_agent(&mut self, v: impl Into<String>) {
         self.user_agent = Some(v.into());

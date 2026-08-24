@@ -131,10 +131,17 @@ where
     }
 
     pub(super) async fn send_unbuffered_single_shot(self, hint: SizeHint) -> Result<Object> {
-        // Single shot uploads are idempotent only if they have pre-conditions.
-        let idempotent = self.options.idempotency.unwrap_or(
-            self.spec.if_generation_match.is_some() || self.spec.if_metageneration_match.is_some(),
-        );
+        // Single shot uploads are evaluated for idempotency according to the configured IdempotencyPolicy.
+        let is_conditionally_safe =
+            self.spec.if_generation_match.is_some() || self.spec.if_metageneration_match.is_some();
+        let idempotent = match self.options.idempotency {
+            Some(explicit) => explicit,
+            None => match self.options.common_options.idempotency_policy {
+                crate::idempotency::IdempotencyPolicy::RetryIdempotent => is_conditionally_safe,
+                crate::idempotency::IdempotencyPolicy::RetryAlways => true,
+                crate::idempotency::IdempotencyPolicy::RetryNever => false,
+            },
+        };
         let throttler = self.options.retry_throttler.clone();
         let retry = self.options.retry_policy.clone();
         let backoff = self.options.backoff_policy.clone();
