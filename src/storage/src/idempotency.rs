@@ -39,6 +39,9 @@ pub enum IdempotencyPolicy {
     RetryNever,
 }
 
+/// HTTP header name used exclusively by Google Cloud Storage for request deduplication across retries.
+pub const IDEMPOTENCY_TOKEN_HEADER: &str = "x-goog-gcs-idempotency-token";
+
 /// Newtype wrapper for request-level GCS idempotency tokens.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdempotencyToken(pub String);
@@ -56,6 +59,37 @@ impl Default for IdempotencyToken {
     }
 }
 
+/// Stamps an `x-goog-gcs-idempotency-token` header extension into `RequestOptions`
+/// if the operation is mutating, evaluated as idempotent, and no token is already present.
+pub fn stamp_idempotency_token(
+    mut options: google_cloud_gax::options::RequestOptions,
+    is_mutating: bool,
+) -> google_cloud_gax::options::RequestOptions {
+    use google_cloud_gax::options::internal::RequestOptionsExt;
+
+    if is_mutating
+        && options.idempotent().unwrap_or(false)
+        && options.get_extension::<IdempotencyToken>().is_none()
+    {
+        let token = IdempotencyToken::new();
+        let mut headers = options
+            .get_extension::<http::HeaderMap>()
+            .cloned()
+            .unwrap_or_default();
+
+        if !headers.contains_key(IDEMPOTENCY_TOKEN_HEADER) {
+            headers.insert(
+                http::header::HeaderName::from_static(IDEMPOTENCY_TOKEN_HEADER),
+                http::HeaderValue::from_str(&token.0).expect("valid UUID header"),
+            );
+            options = options.insert_extension(headers);
+        }
+        options = options.insert_extension(token);
+    }
+
+    options
+}
+
 /// Helper function used by generated stubs and handwritten methods to determine effective
 /// idempotency and inject the `x-goog-gcs-idempotency-token` header extension when appropriate.
 pub fn resolve_idempotency(
@@ -64,8 +98,6 @@ pub fn resolve_idempotency(
     is_conditionally_safe: bool,
     is_mutating: bool,
 ) -> google_cloud_gax::options::RequestOptions {
-    use google_cloud_gax::options::internal::RequestOptionsExt;
-
     // 1. If per-request idempotency was explicitly configured, it overrides the client policy.
     let effective_idempotent = match options.idempotent() {
         Some(explicit) => explicit,
@@ -79,14 +111,8 @@ pub fn resolve_idempotency(
     // 2. Set the effective idempotency on the RequestOptions.
     options.set_idempotency(effective_idempotent);
 
-    // 3. If the operation is mutating and determined to be idempotent (safe to retry),
-    // inject an idempotency token extension if not already present.
-    if is_mutating && effective_idempotent && options.get_extension::<IdempotencyToken>().is_none()
-    {
-        options = options.insert_extension(IdempotencyToken::new());
-    }
-
-    options
+    // 3. Stamp token if mutating and idempotent.
+    stamp_idempotency_token(options, is_mutating)
 }
 
 #[cfg(test)]
@@ -105,6 +131,8 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(true));
         assert!(resolved.get_extension::<IdempotencyToken>().is_some());
+        let headers = resolved.get_extension::<http::HeaderMap>().expect("header map exists");
+        assert!(headers.contains_key(IDEMPOTENCY_TOKEN_HEADER));
     }
 
     #[test]
@@ -118,6 +146,7 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(false));
         assert!(resolved.get_extension::<IdempotencyToken>().is_none());
+        assert!(resolved.get_extension::<http::HeaderMap>().is_none());
     }
 
     #[test]
@@ -131,6 +160,8 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(true));
         assert!(resolved.get_extension::<IdempotencyToken>().is_some());
+        let headers = resolved.get_extension::<http::HeaderMap>().expect("header map exists");
+        assert!(headers.contains_key(IDEMPOTENCY_TOKEN_HEADER));
     }
 
     #[test]
@@ -144,6 +175,7 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(false));
         assert!(resolved.get_extension::<IdempotencyToken>().is_none());
+        assert!(resolved.get_extension::<http::HeaderMap>().is_none());
     }
 
     #[test]
@@ -158,6 +190,8 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(true));
         assert!(resolved.get_extension::<IdempotencyToken>().is_some());
+        let headers = resolved.get_extension::<http::HeaderMap>().expect("header map exists");
+        assert!(headers.contains_key(IDEMPOTENCY_TOKEN_HEADER));
     }
 
     #[test]
@@ -171,5 +205,6 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(true));
         assert!(resolved.get_extension::<IdempotencyToken>().is_none());
+        assert!(resolved.get_extension::<http::HeaderMap>().is_none());
     }
 }
