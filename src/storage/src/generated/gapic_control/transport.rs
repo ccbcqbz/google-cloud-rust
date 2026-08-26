@@ -162,7 +162,6 @@ impl super::stub::StorageControl for StorageControl {
             options,
             req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some(),
         );
-        let options = crate::idempotency::stamp_idempotency_token(options, true);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -261,7 +260,6 @@ impl super::stub::StorageControl for StorageControl {
             options,
             req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some(),
         );
-        let options = crate::idempotency::stamp_idempotency_token(options, false);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -444,7 +442,6 @@ impl super::stub::StorageControl for StorageControl {
             options,
             req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some(),
         );
-        let options = crate::idempotency::stamp_idempotency_token(options, true);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -543,7 +540,6 @@ impl super::stub::StorageControl for StorageControl {
             options,
             req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some(),
         );
-        let options = crate::idempotency::stamp_idempotency_token(options, true);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -810,7 +806,6 @@ impl super::stub::StorageControl for StorageControl {
             options,
             req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some(),
         );
-        let options = crate::idempotency::stamp_idempotency_token(options, true);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -898,7 +893,6 @@ impl super::stub::StorageControl for StorageControl {
             options,
             req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some(),
         );
-        let options = crate::idempotency::stamp_idempotency_token(options, true);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -1059,7 +1053,6 @@ impl super::stub::StorageControl for StorageControl {
             options,
             req.if_metageneration_match.is_some() || req.if_metageneration_not_match.is_some(),
         );
-        let options = crate::idempotency::stamp_idempotency_token(options, true);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(

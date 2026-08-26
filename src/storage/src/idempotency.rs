@@ -131,7 +131,9 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(true));
         assert!(resolved.get_extension::<IdempotencyToken>().is_some());
-        let headers = resolved.get_extension::<http::HeaderMap>().expect("header map exists");
+        let headers = resolved
+            .get_extension::<http::HeaderMap>()
+            .expect("header map exists");
         assert!(headers.contains_key(IDEMPOTENCY_TOKEN_HEADER));
     }
 
@@ -160,7 +162,9 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(true));
         assert!(resolved.get_extension::<IdempotencyToken>().is_some());
-        let headers = resolved.get_extension::<http::HeaderMap>().expect("header map exists");
+        let headers = resolved
+            .get_extension::<http::HeaderMap>()
+            .expect("header map exists");
         assert!(headers.contains_key(IDEMPOTENCY_TOKEN_HEADER));
     }
 
@@ -190,7 +194,9 @@ mod tests {
         );
         assert_eq!(resolved.idempotent(), Some(true));
         assert!(resolved.get_extension::<IdempotencyToken>().is_some());
-        let headers = resolved.get_extension::<http::HeaderMap>().expect("header map exists");
+        let headers = resolved
+            .get_extension::<http::HeaderMap>()
+            .expect("header map exists");
         assert!(headers.contains_key(IDEMPOTENCY_TOKEN_HEADER));
     }
 
