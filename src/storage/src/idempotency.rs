@@ -243,8 +243,10 @@ mod tests {
         move_obj.if_source_generation_match = Some(54321);
         assert!(move_obj.is_idempotent());
 
-        // LockBucketRetentionPolicy requires non-zero metageneration
+        // LockBucketRetentionPolicy requires positive metageneration (> 0)
         let mut lock_bkt = crate::model::LockBucketRetentionPolicyRequest::default();
+        assert!(!lock_bkt.is_idempotent());
+        lock_bkt.if_metageneration_match = -1;
         assert!(!lock_bkt.is_idempotent());
         lock_bkt.if_metageneration_match = 2;
         assert!(lock_bkt.is_idempotent());
@@ -290,7 +292,7 @@ impl crate::model::CreateBucketRequest {
 // 3. Conditional Mutating Operations: Idempotent when match preconditions are present
 impl crate::model::LockBucketRetentionPolicyRequest {
     pub fn is_idempotent(&self) -> bool {
-        self.if_metageneration_match != 0
+        self.if_metageneration_match > 0
     }
 }
 
