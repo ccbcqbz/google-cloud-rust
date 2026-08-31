@@ -1625,6 +1625,7 @@ libraries:
           service_config: google/storage/v2/storage_v2.yaml
           api_path: google/storage/v2
           template: grpc-client
+          idempotency_predicate: is_idempotent
         - has_veneer: true
           include_grpc_only_methods: true
           name_overrides: .google.storage.control.v2.IntelligenceConfig.Filter.cloud_storage_buckets=CloudStorageBucketsOneOf,.google.storage.control.v2.IntelligenceConfig.Filter.cloud_storage_locations=CloudStorageLocationsOneOf

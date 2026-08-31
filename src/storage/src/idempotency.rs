@@ -213,4 +213,154 @@ mod tests {
         assert!(resolved.get_extension::<IdempotencyToken>().is_none());
         assert!(resolved.get_extension::<http::HeaderMap>().is_none());
     }
+
+    #[test]
+    fn test_request_idempotency_evaluations() {
+        // Reads are always idempotent
+        assert!(crate::model::GetObjectRequest::default().is_idempotent());
+        assert!(crate::model::ListObjectsRequest::default().is_idempotent());
+        assert!(crate::model::GetBucketRequest::default().is_idempotent());
+        assert!(crate::model::ListBucketsRequest::default().is_idempotent());
+
+        // CreateBucket is never idempotent by default
+        assert!(!crate::model::CreateBucketRequest::default().is_idempotent());
+
+        // DeleteObject requires match preconditions
+        let mut del_obj = crate::model::DeleteObjectRequest::default();
+        assert!(!del_obj.is_idempotent());
+        del_obj.if_generation_match = Some(12345);
+        assert!(del_obj.is_idempotent());
+
+        // DeleteBucket requires metageneration match
+        let mut del_bkt = crate::model::DeleteBucketRequest::default();
+        assert!(!del_bkt.is_idempotent());
+        del_bkt.if_metageneration_match = Some(1);
+        assert!(del_bkt.is_idempotent());
+
+        // MoveObject requires source or destination generation match
+        let mut move_obj = crate::model::MoveObjectRequest::default();
+        assert!(!move_obj.is_idempotent());
+        move_obj.if_source_generation_match = Some(54321);
+        assert!(move_obj.is_idempotent());
+
+        // LockBucketRetentionPolicy requires non-zero metageneration
+        let mut lock_bkt = crate::model::LockBucketRetentionPolicyRequest::default();
+        assert!(!lock_bkt.is_idempotent());
+        lock_bkt.if_metageneration_match = 2;
+        assert!(lock_bkt.is_idempotent());
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// GCS Request-Level Idempotency Evaluations
+// -----------------------------------------------------------------------------------------
+
+// 1. Read / List Operations: Inherently idempotent
+impl crate::model::GetObjectRequest {
+    pub fn is_idempotent(&self) -> bool {
+        true
+    }
+}
+
+impl crate::model::ListObjectsRequest {
+    pub fn is_idempotent(&self) -> bool {
+        true
+    }
+}
+
+impl crate::model::GetBucketRequest {
+    pub fn is_idempotent(&self) -> bool {
+        true
+    }
+}
+
+impl crate::model::ListBucketsRequest {
+    pub fn is_idempotent(&self) -> bool {
+        true
+    }
+}
+
+// 2. Unconditioned Mutating Operations: Non-idempotent by default
+impl crate::model::CreateBucketRequest {
+    pub fn is_idempotent(&self) -> bool {
+        false
+    }
+}
+
+// 3. Conditional Mutating Operations: Idempotent when match preconditions are present
+impl crate::model::LockBucketRetentionPolicyRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_metageneration_match != 0
+    }
+}
+
+impl crate::model::DeleteBucketRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_metageneration_match.is_some() || self.if_metageneration_not_match.is_some()
+    }
+}
+
+impl crate::model::UpdateBucketRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_metageneration_match.is_some() || self.if_metageneration_not_match.is_some()
+    }
+}
+
+impl crate::model::ComposeObjectRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_generation_match.is_some() || self.if_metageneration_match.is_some()
+    }
+}
+
+impl crate::model::DeleteObjectRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_generation_match.is_some()
+            || self.if_generation_not_match.is_some()
+            || self.if_metageneration_match.is_some()
+            || self.if_metageneration_not_match.is_some()
+    }
+}
+
+impl crate::model::RestoreObjectRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_generation_match.is_some()
+            || self.if_generation_not_match.is_some()
+            || self.if_metageneration_match.is_some()
+            || self.if_metageneration_not_match.is_some()
+    }
+}
+
+impl crate::model::UpdateObjectRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_generation_match.is_some()
+            || self.if_generation_not_match.is_some()
+            || self.if_metageneration_match.is_some()
+            || self.if_metageneration_not_match.is_some()
+    }
+}
+
+impl crate::model::RewriteObjectRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_generation_match.is_some()
+            || self.if_generation_not_match.is_some()
+            || self.if_metageneration_match.is_some()
+            || self.if_metageneration_not_match.is_some()
+            || self.if_source_generation_match.is_some()
+            || self.if_source_generation_not_match.is_some()
+            || self.if_source_metageneration_match.is_some()
+            || self.if_source_metageneration_not_match.is_some()
+    }
+}
+
+impl crate::model::MoveObjectRequest {
+    pub fn is_idempotent(&self) -> bool {
+        self.if_source_generation_match.is_some()
+            || self.if_source_generation_not_match.is_some()
+            || self.if_source_metageneration_match.is_some()
+            || self.if_source_metageneration_not_match.is_some()
+            || self.if_generation_match.is_some()
+            || self.if_generation_not_match.is_some()
+            || self.if_metageneration_match.is_some()
+            || self.if_metageneration_not_match.is_some()
+    }
 }

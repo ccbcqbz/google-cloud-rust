@@ -473,14 +473,14 @@ async fn retry_transient_override_idempotency() -> Result {
     let server = Server::run();
     let matching = || {
         Expectation::matching(all_of![
-            request::method_path("POST", "/upload/storage/v1/b/bucket/o"),
-            request::query(url_decoded(contains(("name", "object")))),
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
             request::query(url_decoded(contains(("uploadType", "multipart")))),
         ])
     };
     server.expect(matching().times(3).respond_with(cycle![
-        status_code(429).body("try-again"),
-        status_code(429).body("try-again"),
+        status_code(503).body("try-again"),
+        status_code(503).body("try-again"),
         json_encoded(response_body()).append_header("content-type", "application/json"),
     ]));
 
@@ -490,8 +490,8 @@ async fn retry_transient_override_idempotency() -> Result {
     let stub = crate::storage::transport::Storage::new_test(inner);
     let got = WriteObject::new(
         stub,
-        "projects/_/buckets/bucket",
-        "object",
+        "projects/_/buckets/test-bucket",
+        "test-object",
         "hello",
         options,
     )
