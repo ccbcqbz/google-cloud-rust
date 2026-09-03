@@ -65,7 +65,6 @@ pub mod read_object;
 pub mod read_resume_policy;
 pub mod retry_policy;
 pub mod signed_url;
-pub use crate::idempotency::IdempotencyPolicy;
 pub use crate::storage::request_options;
 pub use crate::storage::streaming_source;
 

@@ -614,46 +614,7 @@ async fn retry_transient_failures_exhausted() -> Result {
 }
 
 #[tokio::test]
-async fn retry_transient_retry_always_policy() -> Result {
-    let server = Server::run();
-    let matching = || {
-        Expectation::matching(all_of![
-            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
-            request::query(url_decoded(contains(("name", "test-object")))),
-            request::query(url_decoded(contains(("uploadType", "multipart")))),
-        ])
-    };
-    server.expect(matching().times(2).respond_with(cycle![
-        status_code(503).body("try-again"),
-        json_encoded(response_body()).append_header("content-type", "application/json"),
-    ]));
-
-    let inner = test_inner_client(
-        test_builder()
-            .with_endpoint(format!("http://{}", server.addr()))
-            .with_idempotency_policy(crate::idempotency::IdempotencyPolicy::RetryAlways),
-    )
-    .await;
-    let options = inner.options.clone();
-    let stub = crate::storage::transport::Storage::new_test(inner);
-    // Request without preconditions should retry because client policy is RetryAlways
-    let got = WriteObject::new(
-        stub,
-        "projects/_/buckets/test-bucket",
-        "test-object",
-        "hello",
-        options,
-    )
-    .send_unbuffered()
-    .await?;
-    let want = Object::from(serde_json::from_value::<v1::Object>(response_body())?);
-    assert_eq!(got, want);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn retry_transient_retry_never_policy() -> Result {
+async fn retry_transient_override_idempotency_false() -> Result {
     let server = Server::run();
     let matching = || {
         Expectation::matching(all_of![
@@ -668,15 +629,11 @@ async fn retry_transient_retry_never_policy() -> Result {
             .respond_with(status_code(503).body("try-again")),
     );
 
-    let inner = test_inner_client(
-        test_builder()
-            .with_endpoint(format!("http://{}", server.addr()))
-            .with_idempotency_policy(crate::idempotency::IdempotencyPolicy::RetryNever),
-    )
-    .await;
+    let inner =
+        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
     let options = inner.options.clone();
     let stub = crate::storage::transport::Storage::new_test(inner);
-    // Request WITH preconditions should NOT retry because client policy is RetryNever
+    // Request WITH preconditions should NOT retry when overridden with with_idempotency(false)
     let err = WriteObject::new(
         stub,
         "projects/_/buckets/test-bucket",
@@ -685,9 +642,10 @@ async fn retry_transient_retry_never_policy() -> Result {
         options,
     )
     .set_if_generation_match(0)
+    .with_idempotency(false)
     .send_unbuffered()
     .await
-    .expect_err("expected error as client policy is RetryNever");
+    .expect_err("expected error as with_idempotency is false");
     assert_eq!(err.http_status_code(), Some(503), "{err:?}");
 
     Ok(())

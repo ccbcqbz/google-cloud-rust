@@ -14,30 +14,6 @@
 
 //! Types and utilities for configuring idempotency and retry safety in Google Cloud Storage.
 
-/// Configures how the client evaluates whether an operation is idempotent and safe to retry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[non_exhaustive]
-pub enum IdempotencyPolicy {
-    /// Safe default mode.
-    ///
-    /// Read-only operations (such as `read_object`, `get_bucket`, `list_objects`) are always
-    /// considered idempotent. Mutating operations (such as `write_object`, `delete_object`,
-    /// `move_object`) are considered idempotent only when guarded by required request
-    /// preconditions (such as `if_generation_match` or `if_metageneration_match`).
-    #[default]
-    RetryIdempotent,
-
-    /// Retries all operations regardless of idempotency or preconditions.
-    ///
-    /// In this mode, even mutating requests without preconditions are treated as idempotent
-    /// and eligible for retries on transient errors.
-    RetryAlways,
-
-    /// Never retries any operations, regardless of idempotency or preconditions.
-    ///
-    /// In this mode, operations are attempted exactly once and will not retry on errors.
-    RetryNever,
-}
 
 /// HTTP header name used exclusively by Google Cloud Storage for request deduplication across retries.
 pub(crate) const IDEMPOTENCY_TOKEN_HEADER: &str = "x-goog-gcs-idempotency-token";

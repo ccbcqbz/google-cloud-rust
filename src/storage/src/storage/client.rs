@@ -711,30 +711,6 @@ impl ClientBuilder {
         self
     }
 
-    /// Configure the idempotency policy for the client.
-    ///
-    /// The idempotency policy controls how the client determines whether an operation
-    /// is safe to retry on transient errors.
-    ///
-    /// # Example
-    /// ```
-    /// # use google_cloud_storage::client::Storage;
-    /// # use google_cloud_storage::idempotency::IdempotencyPolicy;
-    /// # async fn sample() -> anyhow::Result<()> {
-    /// let client = Storage::builder()
-    ///     .with_idempotency_policy(IdempotencyPolicy::RetryIdempotent)
-    ///     .build()
-    ///     .await?;
-    /// # Ok(()) }
-    /// ```
-    pub fn with_idempotency_policy(
-        mut self,
-        policy: crate::idempotency::IdempotencyPolicy,
-    ) -> Self {
-        self.common_options.idempotency_policy = policy;
-        self
-    }
-
     /// Configure the number of subchannels used by the client.
     ///
     /// # Example

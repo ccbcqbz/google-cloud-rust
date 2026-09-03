@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::idempotency::IdempotencyPolicy;
 use crate::read_resume_policy::{ReadResumePolicy, Recommended};
 use std::sync::Arc;
 
@@ -28,7 +27,6 @@ pub struct CommonOptions {
     pub read_resume_policy: Arc<dyn ReadResumePolicy>,
     pub resumable_upload_threshold: usize,
     pub resumable_upload_buffer_size: usize,
-    pub idempotency_policy: IdempotencyPolicy,
 }
 
 impl CommonOptions {
@@ -38,7 +36,6 @@ impl CommonOptions {
             read_resume_policy,
             resumable_upload_threshold: RESUMABLE_UPLOAD_THRESHOLD,
             resumable_upload_buffer_size: RESUMABLE_UPLOAD_TARGET_CHUNK,
-            idempotency_policy: IdempotencyPolicy::default(),
         }
     }
 }
