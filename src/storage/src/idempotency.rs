@@ -40,15 +40,15 @@ pub enum IdempotencyPolicy {
 }
 
 /// HTTP header name used exclusively by Google Cloud Storage for request deduplication across retries.
-pub const IDEMPOTENCY_TOKEN_HEADER: &str = "x-goog-gcs-idempotency-token";
+pub(crate) const IDEMPOTENCY_TOKEN_HEADER: &str = "x-goog-gcs-idempotency-token";
 
 /// Newtype wrapper for request-level GCS idempotency tokens.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct IdempotencyToken(pub String);
+pub(crate) struct IdempotencyToken(pub(crate) String);
 
 impl IdempotencyToken {
     /// Generates a new random UUID v4 idempotency token.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(uuid::Uuid::new_v4().to_string())
     }
 }
@@ -61,7 +61,7 @@ impl Default for IdempotencyToken {
 
 /// Stamps an `x-goog-gcs-idempotency-token` header extension into `RequestOptions`
 /// if the operation is mutating, evaluated as idempotent, and no token is already present.
-pub fn stamp_idempotency_token(
+pub(crate) fn stamp_idempotency_token(
     mut options: google_cloud_gax::options::RequestOptions,
     is_mutating: bool,
 ) -> google_cloud_gax::options::RequestOptions {
@@ -92,7 +92,7 @@ pub fn stamp_idempotency_token(
 
 /// Helper function used by request models and handwritten methods to determine effective
 /// idempotency and inject the `x-goog-gcs-idempotency-token` header extension when appropriate.
-pub fn resolve_idempotency(
+pub(crate) fn resolve_idempotency(
     options: google_cloud_gax::options::RequestOptions,
     is_conditionally_safe: bool,
     is_mutating: bool,
