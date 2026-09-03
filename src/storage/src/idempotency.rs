@@ -68,7 +68,7 @@ pub(crate) fn stamp_idempotency_token(
 
 /// Helper function used by request models and handwritten methods to determine effective
 /// idempotency and inject the `x-goog-gcs-idempotency-token` header extension when appropriate.
-pub(crate) fn resolve_idempotency(
+pub(crate) fn configure_idempotency(
     options: google_cloud_gax::options::RequestOptions,
     is_idempotent: bool,
     is_mutating: bool,
@@ -86,9 +86,9 @@ mod tests {
     use google_cloud_gax::options::internal::RequestOptionsExt;
 
     #[test]
-    fn test_resolve_idempotency_conditionally_safe_mutating() {
+    fn test_configure_idempotency_conditionally_safe_mutating() {
         let options = google_cloud_gax::options::RequestOptions::default();
-        let resolved = resolve_idempotency(
+        let resolved = configure_idempotency(
             options, true, // is_idempotent
             true, // is_mutating
         );
@@ -101,9 +101,9 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_idempotency_not_safe_mutating() {
+    fn test_configure_idempotency_not_safe_mutating() {
         let options = google_cloud_gax::options::RequestOptions::default();
-        let resolved = resolve_idempotency(
+        let resolved = configure_idempotency(
             options, false, // is_idempotent
             true,  // is_mutating
         );
@@ -116,7 +116,7 @@ mod tests {
     fn test_per_request_override_takes_precedence() {
         let mut options = google_cloud_gax::options::RequestOptions::default();
         options.set_idempotency(true);
-        let resolved = resolve_idempotency(
+        let resolved = configure_idempotency(
             options, false, // is_idempotent is false, but override is true
             true,
         );
@@ -129,7 +129,7 @@ mod tests {
 
         let mut options2 = google_cloud_gax::options::RequestOptions::default();
         options2.set_idempotency(false);
-        let resolved2 = resolve_idempotency(
+        let resolved2 = configure_idempotency(
             options2, true, // is_idempotent is true, but override is false
             true,
         );
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn test_read_only_operation_no_mutating_token() {
         let options = google_cloud_gax::options::RequestOptions::default();
-        let resolved = resolve_idempotency(
+        let resolved = configure_idempotency(
             options, true,  // read-only operations are inherently safe
             false, // is_mutating = false
         );
@@ -257,7 +257,7 @@ impl crate::model::GetObjectRequest {
         &self,
         options: google_cloud_gax::options::RequestOptions,
     ) -> google_cloud_gax::options::RequestOptions {
-        resolve_idempotency(options, true, false)
+        configure_idempotency(options, true, false)
     }
 }
 
@@ -266,7 +266,7 @@ impl crate::model::ListObjectsRequest {
         &self,
         options: google_cloud_gax::options::RequestOptions,
     ) -> google_cloud_gax::options::RequestOptions {
-        resolve_idempotency(options, true, false)
+        configure_idempotency(options, true, false)
     }
 }
 
@@ -275,7 +275,7 @@ impl crate::model::GetBucketRequest {
         &self,
         options: google_cloud_gax::options::RequestOptions,
     ) -> google_cloud_gax::options::RequestOptions {
-        resolve_idempotency(options, true, false)
+        configure_idempotency(options, true, false)
     }
 }
 
@@ -284,7 +284,7 @@ impl crate::model::ListBucketsRequest {
         &self,
         options: google_cloud_gax::options::RequestOptions,
     ) -> google_cloud_gax::options::RequestOptions {
-        resolve_idempotency(options, true, false)
+        configure_idempotency(options, true, false)
     }
 }
 
@@ -294,7 +294,7 @@ impl crate::model::CreateBucketRequest {
         &self,
         options: google_cloud_gax::options::RequestOptions,
     ) -> google_cloud_gax::options::RequestOptions {
-        resolve_idempotency(options, false, true)
+        configure_idempotency(options, false, true)
     }
 }
 
@@ -305,7 +305,7 @@ impl crate::model::LockBucketRetentionPolicyRequest {
         options: google_cloud_gax::options::RequestOptions,
     ) -> google_cloud_gax::options::RequestOptions {
         let is_idempotent = self.if_metageneration_match > 0;
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }
 
@@ -316,7 +316,7 @@ impl crate::model::DeleteBucketRequest {
     ) -> google_cloud_gax::options::RequestOptions {
         let is_idempotent =
             self.if_metageneration_match.is_some() || self.if_metageneration_not_match.is_some();
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }
 
@@ -327,7 +327,7 @@ impl crate::model::UpdateBucketRequest {
     ) -> google_cloud_gax::options::RequestOptions {
         let is_idempotent =
             self.if_metageneration_match.is_some() || self.if_metageneration_not_match.is_some();
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }
 
@@ -338,7 +338,7 @@ impl crate::model::ComposeObjectRequest {
     ) -> google_cloud_gax::options::RequestOptions {
         let is_idempotent =
             self.if_generation_match.is_some() || self.if_metageneration_match.is_some();
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }
 
@@ -351,7 +351,7 @@ impl crate::model::DeleteObjectRequest {
             || self.if_generation_not_match.is_some()
             || self.if_metageneration_match.is_some()
             || self.if_metageneration_not_match.is_some();
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }
 
@@ -364,7 +364,7 @@ impl crate::model::RestoreObjectRequest {
             || self.if_generation_not_match.is_some()
             || self.if_metageneration_match.is_some()
             || self.if_metageneration_not_match.is_some();
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }
 
@@ -377,7 +377,7 @@ impl crate::model::UpdateObjectRequest {
             || self.if_generation_not_match.is_some()
             || self.if_metageneration_match.is_some()
             || self.if_metageneration_not_match.is_some();
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }
 
@@ -394,7 +394,7 @@ impl crate::model::RewriteObjectRequest {
             || self.if_source_generation_not_match.is_some()
             || self.if_source_metageneration_match.is_some()
             || self.if_source_metageneration_not_match.is_some();
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }
 
@@ -411,6 +411,6 @@ impl crate::model::MoveObjectRequest {
             || self.if_generation_not_match.is_some()
             || self.if_metageneration_match.is_some()
             || self.if_metageneration_not_match.is_some();
-        resolve_idempotency(options, is_idempotent, true)
+        configure_idempotency(options, is_idempotent, true)
     }
 }

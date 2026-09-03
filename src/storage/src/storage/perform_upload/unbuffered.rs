@@ -133,7 +133,7 @@ where
     pub(super) async fn send_unbuffered_single_shot(self, hint: SizeHint) -> Result<Object> {
         let is_idempotent = self.spec.if_generation_match.is_some()
             || self.spec.if_metageneration_match.is_some();
-        let options = crate::idempotency::resolve_idempotency(
+        let options = crate::idempotency::configure_idempotency(
             self.options.gax(),
             is_idempotent,
             /*is_mutating=*/ true,
