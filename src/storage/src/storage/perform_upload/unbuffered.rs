@@ -131,11 +131,11 @@ where
     }
 
     pub(super) async fn send_unbuffered_single_shot(self, hint: SizeHint) -> Result<Object> {
-        let is_conditionally_safe = self.spec.if_generation_match.is_some()
+        let is_idempotent = self.spec.if_generation_match.is_some()
             || self.spec.if_metageneration_match.is_some();
         let options = crate::idempotency::resolve_idempotency(
             self.options.gax(),
-            is_conditionally_safe,
+            is_idempotent,
             /*is_mutating=*/ true,
         );
         let idempotent = options.idempotent().unwrap_or(false);

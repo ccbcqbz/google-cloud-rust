@@ -70,12 +70,12 @@ pub(crate) fn stamp_idempotency_token(
 /// idempotency and inject the `x-goog-gcs-idempotency-token` header extension when appropriate.
 pub(crate) fn resolve_idempotency(
     options: google_cloud_gax::options::RequestOptions,
-    is_conditionally_safe: bool,
+    is_idempotent: bool,
     is_mutating: bool,
 ) -> google_cloud_gax::options::RequestOptions {
     let options = google_cloud_gax::options::internal::set_default_idempotency(
         options,
-        is_conditionally_safe,
+        is_idempotent,
     );
     stamp_idempotency_token(options, is_mutating)
 }
@@ -89,7 +89,7 @@ mod tests {
     fn test_resolve_idempotency_conditionally_safe_mutating() {
         let options = google_cloud_gax::options::RequestOptions::default();
         let resolved = resolve_idempotency(
-            options, true, // is_conditionally_safe
+            options, true, // is_idempotent
             true, // is_mutating
         );
         assert_eq!(resolved.idempotent(), Some(true));
@@ -104,7 +104,7 @@ mod tests {
     fn test_resolve_idempotency_not_safe_mutating() {
         let options = google_cloud_gax::options::RequestOptions::default();
         let resolved = resolve_idempotency(
-            options, false, // is_conditionally_safe
+            options, false, // is_idempotent
             true,  // is_mutating
         );
         assert_eq!(resolved.idempotent(), Some(false));
@@ -117,7 +117,7 @@ mod tests {
         let mut options = google_cloud_gax::options::RequestOptions::default();
         options.set_idempotency(true);
         let resolved = resolve_idempotency(
-            options, false, // is_conditionally_safe is false, but override is true
+            options, false, // is_idempotent is false, but override is true
             true,
         );
         assert_eq!(resolved.idempotent(), Some(true));
@@ -130,7 +130,7 @@ mod tests {
         let mut options2 = google_cloud_gax::options::RequestOptions::default();
         options2.set_idempotency(false);
         let resolved2 = resolve_idempotency(
-            options2, true, // is_conditionally_safe is true, but override is false
+            options2, true, // is_idempotent is true, but override is false
             true,
         );
         assert_eq!(resolved2.idempotent(), Some(false));
