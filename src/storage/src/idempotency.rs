@@ -262,7 +262,7 @@ mod tests {
 
 // 1. Read / List Operations: Inherently idempotent
 impl crate::model::GetObjectRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         true
     }
 
@@ -275,7 +275,7 @@ impl crate::model::GetObjectRequest {
 }
 
 impl crate::model::ListObjectsRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         true
     }
 
@@ -288,7 +288,7 @@ impl crate::model::ListObjectsRequest {
 }
 
 impl crate::model::GetBucketRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         true
     }
 
@@ -301,7 +301,7 @@ impl crate::model::GetBucketRequest {
 }
 
 impl crate::model::ListBucketsRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         true
     }
 
@@ -315,7 +315,7 @@ impl crate::model::ListBucketsRequest {
 
 // 2. Unconditioned Mutating Operations: Non-idempotent by default
 impl crate::model::CreateBucketRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         false
     }
 
@@ -329,7 +329,7 @@ impl crate::model::CreateBucketRequest {
 
 // 3. Conditional Mutating Operations: Idempotent when match preconditions are present
 impl crate::model::LockBucketRetentionPolicyRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_metageneration_match > 0
     }
 
@@ -342,7 +342,7 @@ impl crate::model::LockBucketRetentionPolicyRequest {
 }
 
 impl crate::model::DeleteBucketRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_metageneration_match.is_some() || self.if_metageneration_not_match.is_some()
     }
 
@@ -355,7 +355,7 @@ impl crate::model::DeleteBucketRequest {
 }
 
 impl crate::model::UpdateBucketRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_metageneration_match.is_some() || self.if_metageneration_not_match.is_some()
     }
 
@@ -368,7 +368,7 @@ impl crate::model::UpdateBucketRequest {
 }
 
 impl crate::model::ComposeObjectRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_generation_match.is_some() || self.if_metageneration_match.is_some()
     }
 
@@ -381,7 +381,7 @@ impl crate::model::ComposeObjectRequest {
 }
 
 impl crate::model::DeleteObjectRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_generation_match.is_some()
             || self.if_generation_not_match.is_some()
             || self.if_metageneration_match.is_some()
@@ -397,7 +397,7 @@ impl crate::model::DeleteObjectRequest {
 }
 
 impl crate::model::RestoreObjectRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_generation_match.is_some()
             || self.if_generation_not_match.is_some()
             || self.if_metageneration_match.is_some()
@@ -413,7 +413,7 @@ impl crate::model::RestoreObjectRequest {
 }
 
 impl crate::model::UpdateObjectRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_generation_match.is_some()
             || self.if_generation_not_match.is_some()
             || self.if_metageneration_match.is_some()
@@ -429,7 +429,7 @@ impl crate::model::UpdateObjectRequest {
 }
 
 impl crate::model::RewriteObjectRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_generation_match.is_some()
             || self.if_generation_not_match.is_some()
             || self.if_metageneration_match.is_some()
@@ -449,7 +449,7 @@ impl crate::model::RewriteObjectRequest {
 }
 
 impl crate::model::MoveObjectRequest {
-    pub(crate) fn is_idempotent(&self) -> bool {
+    fn is_idempotent(&self) -> bool {
         self.if_source_generation_match.is_some()
             || self.if_source_generation_not_match.is_some()
             || self.if_source_metageneration_match.is_some()
