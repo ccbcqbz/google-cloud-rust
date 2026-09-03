@@ -74,10 +74,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "DeleteBucket"));
@@ -145,10 +142,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "GetBucket"));
@@ -216,10 +210,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "CreateBucket"));
@@ -311,10 +302,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "ListBuckets"));
@@ -382,10 +370,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -458,10 +443,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "UpdateBucket"));
@@ -535,10 +517,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -615,10 +594,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "DeleteObject"));
@@ -686,10 +662,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -760,10 +733,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "GetObject"));
@@ -831,10 +801,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "UpdateObject"));
@@ -908,10 +875,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "ListObjects"));
@@ -979,10 +943,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new(
@@ -1073,10 +1034,7 @@ impl super::stub::StorageControl for StorageControl {
             grpc::tonic::{Extensions, GrpcMethod},
             prost::ToProto,
         };
-        let options = google_cloud_gax::options::internal::set_default_idempotency(
-            options,
-            req.is_idempotent(),
-        );
+        let options = req.resolve_idempotency(options);
         let extensions = {
             let mut e = Extensions::new();
             e.insert(GrpcMethod::new("google.storage.v2.Storage", "MoveObject"));
