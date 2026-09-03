@@ -131,10 +131,14 @@ where
     }
 
     pub(super) async fn send_unbuffered_single_shot(self, hint: SizeHint) -> Result<Object> {
-        // Single shot uploads are idempotent only if they have pre-conditions.
-        let idempotent = self.options.idempotency.unwrap_or(
-            self.spec.if_generation_match.is_some() || self.spec.if_metageneration_match.is_some(),
+        let is_idempotent = self.spec.if_generation_match.is_some()
+            || self.spec.if_metageneration_match.is_some();
+        let options = crate::idempotency::configure_idempotency(
+            self.options.gax(),
+            is_idempotent,
+            /*is_mutating=*/ true,
         );
+        let idempotent = options.idempotent().unwrap_or(false);
         let throttler = self.options.retry_throttler.clone();
         let retry = self.options.retry_policy.clone();
         let backoff = self.options.backoff_policy.clone();
@@ -143,7 +147,7 @@ where
         let inner = async move |_| {
             let previous = count;
             count += 1;
-            self.single_shot_attempt(hint, previous).await
+            self.single_shot_attempt(hint, previous, &options).await
         };
         google_cloud_gax::retry_loop_internal::retry_loop(
             inner,
@@ -156,11 +160,15 @@ where
         .await
     }
 
-    async fn single_shot_attempt(&self, hint: SizeHint, attempt_count: u32) -> Result<Object> {
+    async fn single_shot_attempt(
+        &self,
+        hint: SizeHint,
+        attempt_count: u32,
+        options: &google_cloud_gax::options::RequestOptions,
+    ) -> Result<Object> {
         let builder = self.single_shot_builder(hint).await?;
-        let options = self
-            .options
-            .gax()
+        let options = options
+            .clone()
             .insert_extension(PathTemplate("/upload/storage/v1/b/{bucket}/o"))
             .insert_extension(ResourceName(format!(
                 "//storage.googleapis.com/{}",
