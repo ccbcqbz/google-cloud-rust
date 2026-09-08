@@ -14,7 +14,6 @@
 
 //! Types and utilities for configuring idempotency and retry safety in Google Cloud Storage.
 
-
 /// HTTP header name used exclusively by Google Cloud Storage for request deduplication across retries.
 pub(crate) const IDEMPOTENCY_TOKEN_HEADER: &str = "x-goog-gcs-idempotency-token";
 
@@ -73,10 +72,8 @@ pub(crate) fn configure_idempotency(
     is_idempotent: bool,
     is_mutating: bool,
 ) -> google_cloud_gax::options::RequestOptions {
-    let options = google_cloud_gax::options::internal::set_default_idempotency(
-        options,
-        is_idempotent,
-    );
+    let options =
+        google_cloud_gax::options::internal::set_default_idempotency(options, is_idempotent);
     stamp_idempotency_token(options, is_mutating)
 }
 
