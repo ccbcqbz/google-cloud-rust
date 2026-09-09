@@ -71,8 +71,18 @@ impl<S> PerformUpload<S> {
     }
 
     async fn start_resumable_upload_attempt(&self, attempt_count: u32) -> Result<String> {
+        let is_idempotent = self.spec.if_generation_match.is_some()
+            || self.spec.if_generation_not_match.is_some()
+            || self.spec.if_metageneration_match.is_some()
+            || self.spec.if_metageneration_not_match.is_some();
+
+        let options = crate::idempotency::configure_idempotency(
+            self.options.gax(),
+            is_idempotent,
+            /*is_mutating=*/ true,
+        );
+
         let builder = self.start_resumable_upload_request().await?;
-        let options = self.options.gax();
         let options = options
             .insert_extension(PathTemplate("/upload/storage/v1/b/{bucket}/o"))
             .insert_extension(ResourceName(format!(

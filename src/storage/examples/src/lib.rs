@@ -474,6 +474,8 @@ pub async fn run_object_examples(buckets: &mut Vec<String>) -> anyhow::Result<()
     objects::compose_file::sample(&control, &id).await?;
     tracing::info!("running move_file example");
     objects::move_file::sample(&control, &id, &id).await?;
+    tracing::info!("running idempotency example");
+    objects::idempotency::sample(&client, &control, &id).await?;
 
     #[cfg(feature = "skipped-integration-tests")]
     {
