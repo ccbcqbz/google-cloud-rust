@@ -54,16 +54,29 @@ where
     }
 
     async fn send_buffered_resumable(self, hint: SizeHint) -> Result<Object> {
+        // Resolve idempotency and stamp the deduplication token once, outside the
+        // retry loop, so every attempt at creating the resumable upload session
+        // reuses the identical `x-goog-gcs-idempotency-token`.
+        let is_idempotent = self.spec.if_generation_match.is_some()
+            || self.spec.if_generation_not_match.is_some()
+            || self.spec.if_metageneration_match.is_some()
+            || self.spec.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::configure_idempotency(
+            self.options.gax(),
+            is_idempotent,
+            /*is_mutating=*/ true,
+        );
+
+        let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let mut progress = InProgressUpload::new(self.options.resumable_upload_buffer_size(), hint);
         let mut url = None;
         let throttler = self.options.retry_throttler.clone();
-        let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let backoff = self.options.backoff_policy.clone();
         let mut count = 0;
         let inner = async move |_| {
             let previous = count;
             count += 1;
-            self.buffered_resumable_attempt(&mut progress, &mut url, previous)
+            self.buffered_resumable_attempt(&mut progress, &mut url, previous, &options)
                 .await
         };
         google_cloud_gax::retry_loop_internal::retry_loop(
@@ -84,12 +97,15 @@ where
         progress: &mut InProgressUpload,
         url: &mut Option<String>,
         attempt_count: u32,
+        options: &google_cloud_gax::options::RequestOptions,
     ) -> Result<Object> {
         let is_resume = url.is_some();
         let upload_url = if let Some(u) = url.as_deref() {
             u
         } else {
-            let u = self.start_resumable_upload_attempt(attempt_count).await?;
+            let u = self
+                .start_resumable_upload_attempt(attempt_count, options)
+                .await?;
             url.insert(u).as_str()
         };
 

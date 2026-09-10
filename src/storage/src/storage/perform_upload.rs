@@ -70,20 +70,14 @@ impl<S> PerformUpload<S> {
             .expect("resource field initialized in `new()`")
     }
 
-    async fn start_resumable_upload_attempt(&self, attempt_count: u32) -> Result<String> {
-        let is_idempotent = self.spec.if_generation_match.is_some()
-            || self.spec.if_generation_not_match.is_some()
-            || self.spec.if_metageneration_match.is_some()
-            || self.spec.if_metageneration_not_match.is_some();
-
-        let options = crate::idempotency::configure_idempotency(
-            self.options.gax(),
-            is_idempotent,
-            /*is_mutating=*/ true,
-        );
-
+    async fn start_resumable_upload_attempt(
+        &self,
+        attempt_count: u32,
+        options: &google_cloud_gax::options::RequestOptions,
+    ) -> Result<String> {
         let builder = self.start_resumable_upload_request().await?;
         let options = options
+            .clone()
             .insert_extension(PathTemplate("/upload/storage/v1/b/{bucket}/o"))
             .insert_extension(ResourceName(format!(
                 "//storage.googleapis.com/{}",
@@ -254,3 +248,6 @@ const RESUME_INCOMPLETE: StatusCode = StatusCode::PERMANENT_REDIRECT;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod token_capture;

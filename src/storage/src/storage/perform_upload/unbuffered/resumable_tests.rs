@@ -78,6 +78,7 @@
 
 use crate::model_ext::{KeyAes256, tests::create_key_helper};
 use crate::storage::client::{Storage, tests::test_builder};
+use crate::storage::perform_upload::token_capture::TokenCapture;
 use crate::streaming_source::{BytesSource, SizeHint, tests::UnknownSize};
 use gaxi::http::reqwest::Response;
 use google_cloud_auth::credentials::anonymous::Builder as Anonymous;
@@ -881,5 +882,111 @@ async fn resumable_upload_handle_response_deser() -> Result {
         .await
         .expect_err("bad format should return errors");
     assert!(err.is_deserialization(), "{err:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn resumable_retry_token_reuse() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-001");
+    let path = session.path().to_string();
+
+    let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let responder = TokenCapture::resumable_session(captured_tokens.clone(), session.to_string());
+
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "resumable")))),
+        ])
+        .times(2)
+        .respond_with(responder),
+    );
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */0"))),
+        ])
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
+    );
+
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    let _ = client
+        .write_object("projects/_/buckets/test-bucket", "test-object", "")
+        .set_if_generation_match(0_i64)
+        .send_unbuffered()
+        .await?;
+
+    let tokens = captured_tokens.lock().unwrap().clone();
+    assert_eq!(tokens.len(), 2, "must attempt 2 POST requests");
+    assert!(
+        tokens[0].is_some(),
+        "first attempt must have idempotency token"
+    );
+    assert_eq!(
+        tokens[0], tokens[1],
+        "token must be identical across retries"
+    );
+
+    Ok(())
+}
+
+// Creating a resumable upload session does not mutate the object; it only
+// allocates a session URL. Retrying session creation is therefore side-effect
+// free, and an unconditioned resumable upload must still survive a transient
+// failure while starting the session.
+#[tokio::test]
+async fn resumable_start_unconditioned_still_retries() -> Result {
+    let server = Server::run();
+    let session = server.url("/upload/session/test-only-001");
+    let path = session.path().to_string();
+
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "resumable")))),
+        ])
+        .times(2)
+        .respond_with(cycle![
+            status_code(503).body("try-again"),
+            status_code(200).append_header("location", session.to_string()),
+        ]),
+    );
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("PUT", path.clone()),
+            request::headers(contains(("content-range", "bytes */0"))),
+        ])
+        .respond_with(
+            status_code(200)
+                .append_header("content-type", "application/json")
+                .body(response_body().to_string()),
+        ),
+    );
+
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .with_resumable_upload_threshold(0_usize)
+        .build()
+        .await?;
+
+    // No preconditions. Upstream retries session creation because it is side-effect free.
+    let got = client
+        .write_object("projects/_/buckets/test-bucket", "test-object", "")
+        .send_unbuffered()
+        .await?;
+    assert_eq!(got.name, "test-object");
+
     Ok(())
 }

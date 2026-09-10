@@ -47,6 +47,19 @@ where
     }
 
     async fn send_unbuffered_resumable(self, hint: SizeHint) -> Result<Object> {
+        // Resolve idempotency and stamp the deduplication token once, outside the
+        // retry loop, so every attempt at creating the resumable upload session
+        // reuses the identical `x-goog-gcs-idempotency-token`.
+        let is_idempotent = self.spec.if_generation_match.is_some()
+            || self.spec.if_generation_not_match.is_some()
+            || self.spec.if_metageneration_match.is_some()
+            || self.spec.if_metageneration_not_match.is_some();
+        let options = crate::idempotency::configure_idempotency(
+            self.options.gax(),
+            is_idempotent,
+            /*is_mutating=*/ true,
+        );
+
         let mut upload_url = None;
         let throttler = self.options.retry_throttler.clone();
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
@@ -55,7 +68,7 @@ where
         let inner = async move |_| {
             let previous = count;
             count += 1;
-            self.resumable_attempt(&mut upload_url, hint, previous)
+            self.resumable_attempt(&mut upload_url, hint, previous, &options)
                 .await
         };
         google_cloud_gax::retry_loop_internal::retry_loop(
@@ -74,6 +87,7 @@ where
         url: &mut Option<String>,
         hint: SizeHint,
         attempt_count: u32,
+        options: &google_cloud_gax::options::RequestOptions,
     ) -> Result<Object> {
         let (offset, upload_url) = if let Some(upload_url) = url.as_deref() {
             match self
@@ -86,7 +100,9 @@ where
                 ResumableUploadStatus::Partial(offset) => (offset, upload_url),
             }
         } else {
-            let upload_url = self.start_resumable_upload_attempt(attempt_count).await?;
+            let upload_url = self
+                .start_resumable_upload_attempt(attempt_count, options)
+                .await?;
             (0_u64, url.insert(upload_url).as_str())
         };
 
