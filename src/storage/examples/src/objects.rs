@@ -38,6 +38,8 @@ pub mod list_files;
 pub mod list_files_with_prefix;
 pub mod list_object_contexts;
 #[allow(dead_code)]
+pub mod idempotency;
+#[allow(dead_code)]
 pub mod make_public;
 pub mod move_file;
 pub mod object_csek_to_cmek;
