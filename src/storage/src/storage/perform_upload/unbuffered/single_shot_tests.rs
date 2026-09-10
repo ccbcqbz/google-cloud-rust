@@ -619,6 +619,214 @@ async fn retry_transient_failures_exhausted() -> Result {
     Ok(())
 }
 
+struct TokenCapture {
+    tokens: std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>,
+    call_count: std::sync::atomic::AtomicUsize,
+}
+
+impl httptest::responders::Responder for TokenCapture {
+    fn respond<'a>(
+        &mut self,
+        req: &'a http::Request<bytes::Bytes>,
+    ) -> std::pin::Pin<
+        Box<dyn futures::Future<Output = http::Response<bytes::Bytes>> + std::marker::Send + 'a>,
+    > {
+        let token = req
+            .headers()
+            .get(crate::idempotency::IDEMPOTENCY_TOKEN_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        self.tokens.lock().unwrap().push(token);
+        let count = self
+            .call_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let res = if count == 0 {
+            http::Response::builder()
+                .status(503)
+                .body(bytes::Bytes::from("try-again"))
+                .unwrap()
+        } else {
+            http::Response::builder()
+                .status(200)
+                .header("content-type", "application/json")
+                .body(serde_json::to_vec(&response_body()).unwrap().into())
+                .unwrap()
+        };
+        Box::pin(async move { res })
+    }
+}
+
+#[tokio::test]
+async fn retry_transient_failures_token_reuse() -> Result {
+    let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let responder = TokenCapture {
+        tokens: captured_tokens.clone(),
+        call_count: std::sync::atomic::AtomicUsize::new(0),
+    };
+    let server = Server::run();
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "multipart")))),
+        ])
+        .times(2)
+        .respond_with(responder),
+    );
+
+    let inner =
+        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
+    let options = inner.options.clone();
+    let stub = crate::storage::transport::Storage::new_test(inner);
+    let got = WriteObject::new(
+        stub,
+        "projects/_/buckets/test-bucket",
+        "test-object",
+        "hello",
+        options,
+    )
+    .set_if_generation_match(0)
+    .send_unbuffered()
+    .await?;
+    let want = Object::from(serde_json::from_value::<v1::Object>(response_body())?);
+    assert_eq!(got, want);
+
+    let tokens = captured_tokens.lock().unwrap().clone();
+    assert_eq!(
+        tokens.len(),
+        2,
+        "expected 2 attempts: initial failure and retry"
+    );
+    assert!(
+        tokens[0].is_some(),
+        "idempotency token header must be present on attempt 1"
+    );
+    assert_eq!(
+        tokens[0], tokens[1],
+        "token must be identical across retries"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn retry_transient_not_idempotent_no_token_no_retry() -> Result {
+    let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let responder = TokenCapture {
+        tokens: captured_tokens.clone(),
+        call_count: std::sync::atomic::AtomicUsize::new(0),
+    };
+    let server = Server::run();
+    // Unconditioned request will not be retried, so server expects exactly 1 request.
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "multipart")))),
+        ])
+        .times(1)
+        .respond_with(responder),
+    );
+
+    let inner =
+        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
+    let options = inner.options.clone();
+    let stub = crate::storage::transport::Storage::new_test(inner);
+    let err = WriteObject::new(
+        stub,
+        "projects/_/buckets/test-bucket",
+        "test-object",
+        "hello",
+        options,
+    )
+    .send_unbuffered()
+    .await
+    .expect_err("expected error because unconditioned mutation does not retry");
+    assert_eq!(err.http_status_code(), Some(503), "{err:?}");
+
+    let tokens = captured_tokens.lock().unwrap().clone();
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(
+        tokens[0], None,
+        "unconditioned mutation must not send idempotency token"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn precondition_failed_412_not_retried() -> Result {
+    let server = Server::run();
+    let matching = || {
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "multipart")))),
+        ])
+    };
+    server.expect(
+        matching()
+            .times(1)
+            .respond_with(status_code(412).body("Precondition Failed")),
+    );
+
+    let inner =
+        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
+    let options = inner.options.clone();
+    let stub = crate::storage::transport::Storage::new_test(inner);
+    let err = WriteObject::new(
+        stub,
+        "projects/_/buckets/test-bucket",
+        "test-object",
+        "hello",
+        options,
+    )
+    .set_if_generation_match(0)
+    .send_unbuffered()
+    .await
+    .expect_err("expected permanent error on 412");
+    assert_eq!(err.http_status_code(), Some(412), "{err:?}");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn retry_transient_override_idempotency_false() -> Result {
+    let server = Server::run();
+    let matching = || {
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "multipart")))),
+        ])
+    };
+    server.expect(
+        matching()
+            .times(1)
+            .respond_with(status_code(503).body("try-again")),
+    );
+
+    let inner =
+        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
+    let options = inner.options.clone();
+    let stub = crate::storage::transport::Storage::new_test(inner);
+    let err = WriteObject::new(
+        stub,
+        "projects/_/buckets/test-bucket",
+        "test-object",
+        "hello",
+        options,
+    )
+    .set_if_generation_match(0)
+    .with_idempotency(false)
+    .send_unbuffered()
+    .await
+    .expect_err("expected error as with_idempotency is false");
+    assert_eq!(err.http_status_code(), Some(503), "{err:?}");
+
+    Ok(())
+}
+
 mod trailing_checksums {
     use super::*;
 
