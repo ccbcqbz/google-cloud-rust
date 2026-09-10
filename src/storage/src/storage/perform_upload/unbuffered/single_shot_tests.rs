@@ -23,6 +23,7 @@ use crate::storage::client::{
     tests::{test_builder, test_inner_client},
 };
 use crate::storage::perform_upload::tests::perform_upload;
+use crate::storage::perform_upload::token_capture::TokenCapture;
 use crate::streaming_source::IterSource;
 use crate::streaming_source::SizeHint;
 use gaxi::http::reqwest::{Method, Request};
@@ -619,50 +620,13 @@ async fn retry_transient_failures_exhausted() -> Result {
     Ok(())
 }
 
-struct TokenCapture {
-    tokens: std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>,
-    call_count: std::sync::atomic::AtomicUsize,
-}
-
-impl httptest::responders::Responder for TokenCapture {
-    fn respond<'a>(
-        &mut self,
-        req: &'a http::Request<bytes::Bytes>,
-    ) -> std::pin::Pin<
-        Box<dyn futures::Future<Output = http::Response<bytes::Bytes>> + std::marker::Send + 'a>,
-    > {
-        let token = req
-            .headers()
-            .get(crate::idempotency::IDEMPOTENCY_TOKEN_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
-        self.tokens.lock().unwrap().push(token);
-        let count = self
-            .call_count
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let res = if count == 0 {
-            http::Response::builder()
-                .status(503)
-                .body(bytes::Bytes::from("try-again"))
-                .unwrap()
-        } else {
-            http::Response::builder()
-                .status(200)
-                .header("content-type", "application/json")
-                .body(serde_json::to_vec(&response_body()).unwrap().into())
-                .unwrap()
-        };
-        Box::pin(async move { res })
-    }
-}
-
 #[tokio::test]
 async fn retry_transient_failures_token_reuse() -> Result {
     let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let responder = TokenCapture {
-        tokens: captured_tokens.clone(),
-        call_count: std::sync::atomic::AtomicUsize::new(0),
-    };
+    let responder = TokenCapture::json_body(
+        captured_tokens.clone(),
+        serde_json::to_vec(&response_body())?.into(),
+    );
     let server = Server::run();
     server.expect(
         Expectation::matching(all_of![
@@ -712,10 +676,10 @@ async fn retry_transient_failures_token_reuse() -> Result {
 #[tokio::test]
 async fn retry_transient_not_idempotent_no_token_no_retry() -> Result {
     let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let responder = TokenCapture {
-        tokens: captured_tokens.clone(),
-        call_count: std::sync::atomic::AtomicUsize::new(0),
-    };
+    let responder = TokenCapture::json_body(
+        captured_tokens.clone(),
+        serde_json::to_vec(&response_body())?.into(),
+    );
     let server = Server::run();
     // Unconditioned request will not be retried, so server expects exactly 1 request.
     server.expect(

@@ -46,19 +46,27 @@ pub(crate) fn stamp_idempotency_token(
         && options.idempotent().unwrap_or(false)
         && options.get_extension::<IdempotencyToken>().is_none()
     {
-        let token = IdempotencyToken::new();
         let mut headers = options
             .get_extension::<http::HeaderMap>()
             .cloned()
             .unwrap_or_default();
 
-        if !headers.contains_key(IDEMPOTENCY_TOKEN_HEADER) {
-            headers.insert(
-                http::header::HeaderName::from_static(IDEMPOTENCY_TOKEN_HEADER),
-                http::HeaderValue::from_str(&token.0).expect("valid UUID header"),
-            );
-            options = options.insert_extension(headers);
-        }
+        // Adopt a caller-supplied token when it is usable as a header value, so
+        // applications can control the deduplication key. Otherwise mint one.
+        let token = headers
+            .get(IDEMPOTENCY_TOKEN_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| IdempotencyToken(value.to_string()))
+            .unwrap_or_default();
+
+        // Always write the header back. Writing it unconditionally keeps the
+        // header on the wire and the `IdempotencyToken` extension in sync even
+        // when the pre-existing header value was not valid visible ASCII.
+        headers.insert(
+            http::header::HeaderName::from_static(IDEMPOTENCY_TOKEN_HEADER),
+            http::HeaderValue::from_str(&token.0).expect("valid UUID header"),
+        );
+        options = options.insert_extension(headers);
         options = options.insert_extension(token);
     }
 
@@ -461,6 +469,78 @@ mod tests {
         let headers = options
             .get_extension::<http::HeaderMap>()
             .expect("header map exists");
+        assert!(headers.contains_key(IDEMPOTENCY_TOKEN_HEADER));
+    }
+
+    #[test]
+    fn test_custom_idempotency_token_header_synchronized() {
+        let mut custom_headers = http::HeaderMap::new();
+        custom_headers.insert(
+            http::header::HeaderName::from_static(IDEMPOTENCY_TOKEN_HEADER),
+            http::HeaderValue::from_static("custom-uuid-12345"),
+        );
+        let options =
+            google_cloud_gax::options::RequestOptions::default().insert_extension(custom_headers);
+        let resolved = configure_idempotency(options, true, true);
+        assert_eq!(
+            resolved
+                .get_extension::<IdempotencyToken>()
+                .map(|t| t.0.as_str()),
+            Some("custom-uuid-12345")
+        );
+    }
+
+    // A caller-supplied header value that is not valid visible ASCII cannot be
+    // adopted as a token. In that case a fresh token is minted and the header is
+    // overwritten, so the extension and the value on the wire always agree.
+    #[test]
+    fn idempotency_token_extension_matches_header() {
+        let mut custom_headers = http::HeaderMap::new();
+        custom_headers.insert(
+            http::header::HeaderName::from_static(IDEMPOTENCY_TOKEN_HEADER),
+            http::HeaderValue::from_bytes(&[0xff, 0xfe]).expect("opaque header value"),
+        );
+        let options =
+            google_cloud_gax::options::RequestOptions::default().insert_extension(custom_headers);
+        let resolved = configure_idempotency(options, true, true);
+
+        let extension_token = resolved
+            .get_extension::<IdempotencyToken>()
+            .map(|t| t.0.clone())
+            .expect("token extension exists");
+        let wire_header = resolved
+            .get_extension::<http::HeaderMap>()
+            .and_then(|h| h.get(IDEMPOTENCY_TOKEN_HEADER))
+            .map(|v| v.as_bytes().to_vec())
+            .expect("header exists");
+
+        assert_eq!(
+            extension_token.as_bytes(),
+            wire_header.as_slice(),
+            "IdempotencyToken extension must match the header actually sent on the wire"
+        );
+    }
+
+    // Stamping the token rewrites the `HeaderMap` extension. Other headers the
+    // caller placed in that map must survive.
+    #[test]
+    fn stamping_preserves_other_caller_headers() {
+        let mut custom_headers = http::HeaderMap::new();
+        custom_headers.insert(
+            http::header::HeaderName::from_static("x-goog-custom"),
+            http::HeaderValue::from_static("keep-me"),
+        );
+        let options =
+            google_cloud_gax::options::RequestOptions::default().insert_extension(custom_headers);
+        let resolved = configure_idempotency(options, true, true);
+
+        let headers = resolved
+            .get_extension::<http::HeaderMap>()
+            .expect("header map exists");
+        assert_eq!(
+            headers.get("x-goog-custom").map(|v| v.as_bytes()),
+            Some("keep-me".as_bytes())
+        );
         assert!(headers.contains_key(IDEMPOTENCY_TOKEN_HEADER));
     }
 }
