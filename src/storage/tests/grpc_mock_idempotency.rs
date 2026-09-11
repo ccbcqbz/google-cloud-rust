@@ -188,3 +188,57 @@ async fn get_object_read_omits_idempotency_token() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn delete_object_retry_reuses_idempotency_token() -> anyhow::Result<()> {
+    let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let tokens_clone = captured_tokens.clone();
+
+    let mut mock = MockStorage::new();
+    let mut call_count = 0;
+    mock.expect_delete_object()
+        .times(2)
+        .returning(move |request| {
+            let token = request
+                .metadata()
+                .get(IDEMPOTENCY_TOKEN_HEADER)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+            tokens_clone.lock().unwrap().push(token);
+
+            call_count += 1;
+            if call_count == 1 {
+                Err(gaxi::grpc::tonic::Status::unavailable("try again"))
+            } else {
+                Ok(gaxi::grpc::tonic::Response::new(()))
+            }
+        });
+
+    let (endpoint, _server) = start(BIND_ADDRESS, mock).await?;
+    let client = StorageControl::builder()
+        .with_endpoint(endpoint)
+        .with_credentials(Anonymous::default().build())
+        .build()
+        .await?;
+
+    client
+        .delete_object()
+        .set_bucket(BUCKET_NAME)
+        .set_object(OBJECT_NAME)
+        .set_if_generation_match(54321)
+        .send()
+        .await?;
+
+    let tokens = captured_tokens.lock().unwrap().clone();
+    assert_eq!(tokens.len(), 2, "must attempt 2 gRPC requests");
+    assert!(
+        tokens[0].is_some(),
+        "first attempt must have idempotency token"
+    );
+    assert_eq!(
+        tokens[0], tokens[1],
+        "token must be identical across gRPC retries"
+    );
+
+    Ok(())
+}

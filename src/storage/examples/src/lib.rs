@@ -489,6 +489,8 @@ pub async fn run_object_examples(buckets: &mut Vec<String>) -> anyhow::Result<()
     objects::list_object_contexts::sample(&control, &id).await?;
     tracing::info!("running get_object_contexts example");
     objects::get_object_contexts::sample(&control, &id).await?;
+    tracing::info!("running idempotency example");
+    objects::idempotency::sample(&client, &control, &id).await?;
 
     let id = random_bucket_id();
     buckets.push(id.clone());

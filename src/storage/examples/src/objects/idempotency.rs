@@ -45,13 +45,14 @@ pub async fn sample(
     );
 
     // 2. Mutating request with explicit manual override:
-    // Callers can explicitly force or disable retries via `.with_idempotency(bool)`.
-    // Setting `with_idempotency(false)` disables retries even if preconditions are present.
+    // Callers can explicitly disable automatic retries via `.with_idempotency(false)`,
+    // even when match preconditions are present. This also suppresses attaching the
+    // `x-goog-gcs-idempotency-token` deduplication header.
     let updated_data = bytes::Bytes::from("Updated content");
     let updated = client
         .write_object(&bucket, object_name, updated_data)
         .set_if_generation_match(created.generation)
-        .with_idempotency(true) // Explicit override
+        .with_idempotency(false) // Explicit override disables retries and token stamping
         .send_unbuffered()
         .await?;
     println!(
