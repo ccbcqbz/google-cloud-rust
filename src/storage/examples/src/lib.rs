@@ -345,6 +345,8 @@ pub async fn run_object_examples(buckets: &mut Vec<String>) -> anyhow::Result<()
 
     run_object_file_and_stream_examples(&client, &id, file_to_upload_path).await?;
     run_object_management_examples(&control, &id, &archived_copy, &archived_delete).await?;
+    tracing::info!("running idempotency example");
+    objects::idempotency::sample(&client, &control, &id).await?;
     run_object_kms_and_csek_examples(
         &control,
         &client,

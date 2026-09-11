@@ -13,14 +13,16 @@
 // limitations under the License.
 
 // [START storage_configure_idempotency_retry]
+use google_cloud_gax::options::RequestOptionsBuilder;
 use google_cloud_storage::client::{Storage, StorageControl};
+use google_cloud_wkt::FieldMask;
 
-/// Demonstrates configuring idempotency and match preconditions in Google Cloud Storage.
+/// Demonstrates how preconditions and explicit overrides control request idempotency and retries.
 ///
-/// Mutating requests guarded by match preconditions (e.g. `if_generation_match`) or targeting
-/// specific object generations (`generation > 0`) are automatically marked as idempotent and safe
-/// to retry under transient errors (HTTP 503, 429). The client library automatically stamps the
-/// `x-goog-gcs-idempotency-token` header for backend request deduplication across retry attempts.
+/// Mutating requests guarded by match preconditions (`if_generation_match` for data/object state,
+/// `if_metageneration_match` for metadata updates) or targeting a specific object generation
+/// (`generation > 0` on delete) are automatically evaluated as idempotent and retried on transient
+/// errors with an `x-goog-gcs-idempotency-token` header.
 pub async fn sample(
     client: &Storage,
     control_client: &StorageControl,
@@ -28,48 +30,60 @@ pub async fn sample(
 ) -> anyhow::Result<()> {
     let bucket = format!("projects/_/buckets/{bucket_id}");
     let object_name = "sample-idempotent-object.txt";
-    let data = bytes::Bytes::from("Hello, GCS Idempotency Parity!");
 
-    // 1. Single-shot upload with match precondition:
-    // `set_if_generation_match(0)` asserts that the object must not already exist.
-    // The SDK automatically marks this mutating request as idempotent, enabling
-    // automatic retry with the `x-goog-gcs-idempotency-token` deduplication header.
+    // 1. Data-plane upload with `if_generation_match(0)` (create-if-not-exists):
+    // Automatically evaluated as idempotent and safe to retry with a deduplication token.
     let created = client
-        .write_object(&bucket, object_name, data)
+        .write_object(&bucket, object_name, "initial content")
         .set_if_generation_match(0)
         .send_unbuffered()
         .await?;
     println!(
-        "Created object {} with generation {}",
-        created.name, created.generation
+        "Created {} (generation={}, metageneration={})",
+        created.name, created.generation, created.metageneration
     );
 
-    // 2. Mutating request with explicit manual override:
-    // Callers can explicitly force or disable retries via `.with_idempotency(bool)`.
-    // Setting `with_idempotency(false)` disables retries even if preconditions are present.
-    let updated_data = bytes::Bytes::from("Updated content");
-    let updated = client
-        .write_object(&bucket, object_name, updated_data)
-        .set_if_generation_match(created.generation)
-        .with_idempotency(true) // Explicit override
-        .send_unbuffered()
+    // 2. Control-plane metadata update with `if_metageneration_match`:
+    // Metadata updates require a metageneration match precondition to be automatically retried.
+    let metageneration = created.metageneration;
+    let updated_meta = control_client
+        .update_object()
+        .set_if_metageneration_match(metageneration)
+        .set_object(created.set_metadata([("env", "production")]))
+        .set_update_mask(FieldMask::default().set_paths(["metadata"]))
+        .send()
         .await?;
     println!(
-        "Updated object {} generation: {}",
-        updated.name, updated.generation
+        "Updated metadata for {} (metageneration={})",
+        updated_meta.name, updated_meta.metageneration
     );
 
-    // 3. Clean up the sample object using generation-specific deletion:
-    // Deleting a specific generation (`generation > 0`) or using match preconditions
-    // (`if_generation_match`) is inherently idempotent and safe to retry on transient errors.
+    // 3. Explicit per-request idempotency override (`.with_idempotency(false)`):
+    // Callers can override automatic evaluation on any request builder (via inherent methods on
+    // `WriteObject` or `RequestOptionsBuilder::with_idempotency` on `StorageControl` builders)
+    // to force single-attempt execution without stamping an idempotency token.
+    let overwritten = client
+        .write_object(&bucket, object_name, "updated content")
+        .set_if_generation_match(updated_meta.generation)
+        .with_idempotency(false)
+        .send_unbuffered()
+        .await?;
+
+    // 4. Generation-specific deletion (`set_generation` > 0):
+    // Deleting a specific generation (or setting `if_generation_match`) is idempotent; calling
+    // `.with_idempotency(true)` via `RequestOptionsBuilder` is also available when needed.
     control_client
         .delete_object()
         .set_bucket(&bucket)
         .set_object(object_name)
-        .set_generation(updated.generation)
+        .set_generation(overwritten.generation)
+        .with_idempotency(true)
         .send()
         .await?;
-    println!("Successfully deleted specific object generation with idempotency protection");
+    println!(
+        "Deleted {} generation {}",
+        object_name, overwritten.generation
+    );
 
     Ok(())
 }
