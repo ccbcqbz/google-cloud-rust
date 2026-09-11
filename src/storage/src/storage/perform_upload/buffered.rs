@@ -57,14 +57,11 @@ where
         // Resolve idempotency and stamp the deduplication token once, outside the
         // retry loop, so every attempt at creating the resumable upload session
         // reuses the identical `x-goog-gcs-idempotency-token`.
-        let is_idempotent = self.spec.if_generation_match.is_some()
-            || self.spec.if_generation_not_match.is_some()
-            || self.spec.if_metageneration_match.is_some()
-            || self.spec.if_metageneration_not_match.is_some();
         let options = crate::idempotency::configure_idempotency(
             self.options.gax(),
-            is_idempotent,
-            /*is_mutating=*/ true,
+            crate::idempotency::Operation::Mutation {
+                idempotent: self.spec.is_idempotent(),
+            },
         );
 
         let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
