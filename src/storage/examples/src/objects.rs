@@ -33,12 +33,11 @@ pub mod generate_upload_signed_url_v4;
 pub mod get_kms_key;
 pub mod get_metadata;
 pub mod get_object_contexts;
+pub mod idempotency;
 pub mod list_file_archived_generations;
 pub mod list_files;
 pub mod list_files_with_prefix;
 pub mod list_object_contexts;
-#[allow(dead_code)]
-pub mod idempotency;
 #[allow(dead_code)]
 pub mod make_public;
 pub mod move_file;
