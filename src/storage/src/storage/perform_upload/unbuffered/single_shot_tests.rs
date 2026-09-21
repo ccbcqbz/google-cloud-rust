@@ -23,6 +23,7 @@ use crate::storage::client::{
     tests::{test_builder, test_inner_client},
 };
 use crate::storage::perform_upload::tests::perform_upload;
+use crate::storage::perform_upload::token_capture::TokenCapture;
 use crate::streaming_source::IterSource;
 use crate::streaming_source::SizeHint;
 use gaxi::http::reqwest::{Method, Request};
@@ -441,18 +442,20 @@ async fn send_unbuffered() -> Result {
 
 #[tokio::test]
 async fn retry_transient_not_idempotent() -> Result {
+    let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let responder = TokenCapture::json_body(
+        captured_tokens.clone(),
+        serde_json::to_vec(&response_body())?.into(),
+    );
     let server = Server::run();
-    let matching = || {
+    server.expect(
         Expectation::matching(all_of![
             request::method_path("POST", "/upload/storage/v1/b/bucket/o"),
             request::query(url_decoded(contains(("name", "object")))),
             request::query(url_decoded(contains(("uploadType", "multipart")))),
         ])
-    };
-    server.expect(
-        matching()
-            .times(1)
-            .respond_with(cycle![status_code(503).body("try-again"),]),
+        .times(1)
+        .respond_with(responder),
     );
 
     let inner =
@@ -470,6 +473,13 @@ async fn retry_transient_not_idempotent() -> Result {
     .await
     .expect_err("expected error as request is not idempotent");
     assert_eq!(err.http_status_code(), Some(503), "{err:?}");
+
+    let tokens = captured_tokens.lock().unwrap().clone();
+    assert_eq!(
+        tokens.as_slice(),
+        &[None],
+        "unconditioned mutation must not send idempotency token"
+    );
 
     Ok(())
 }
@@ -502,42 +512,6 @@ async fn retry_transient_override_idempotency() -> Result {
         options,
     )
     .with_idempotency(true)
-    .send_unbuffered()
-    .await?;
-    let want = Object::from(serde_json::from_value::<v1::Object>(response_body())?);
-    assert_eq!(got, want);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn retry_transient_failures_then_success() -> Result {
-    let server = Server::run();
-    let matching = || {
-        Expectation::matching(all_of![
-            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
-            request::query(url_decoded(contains(("name", "test-object")))),
-            request::query(url_decoded(contains(("uploadType", "multipart")))),
-        ])
-    };
-    server.expect(matching().times(3).respond_with(cycle![
-        status_code(503).body("try-again"),
-        status_code(503).body("try-again"),
-        json_encoded(response_body()).append_header("content-type", "application/json"),
-    ]));
-
-    let inner =
-        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
-    let options = inner.options.clone();
-    let stub = crate::storage::transport::Storage::new_test(inner);
-    let got = WriteObject::new(
-        stub,
-        "projects/_/buckets/test-bucket",
-        "test-object",
-        "hello",
-        options,
-    )
-    .set_if_generation_match(0)
     .send_unbuffered()
     .await?;
     let want = Object::from(serde_json::from_value::<v1::Object>(response_body())?);
@@ -615,6 +589,105 @@ async fn retry_transient_failures_exhausted() -> Result {
     .await
     .expect_err("expected permanent error");
     assert_eq!(err.http_status_code(), Some(503), "{err:?}");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn retry_transient_failures_token_reuse() -> Result {
+    let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let responder = TokenCapture::json_body(
+        captured_tokens.clone(),
+        serde_json::to_vec(&response_body())?.into(),
+    );
+    let server = Server::run();
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "multipart")))),
+        ])
+        .times(2)
+        .respond_with(responder),
+    );
+
+    let inner =
+        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
+    let options = inner.options.clone();
+    let stub = crate::storage::transport::Storage::new_test(inner);
+    let got = WriteObject::new(
+        stub,
+        "projects/_/buckets/test-bucket",
+        "test-object",
+        "hello",
+        options,
+    )
+    .set_if_generation_match(0)
+    .send_unbuffered()
+    .await?;
+    let want = Object::from(serde_json::from_value::<v1::Object>(response_body())?);
+    assert_eq!(got, want);
+
+    let tokens = captured_tokens.lock().unwrap().clone();
+    assert_eq!(
+        tokens.len(),
+        2,
+        "expected 2 attempts: initial failure and retry"
+    );
+    assert!(
+        tokens[0].is_some(),
+        "idempotency token header must be present on attempt 1"
+    );
+    assert_eq!(
+        tokens[0], tokens[1],
+        "token must be identical across retries"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn retry_transient_override_idempotency_false() -> Result {
+    let captured_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let responder = TokenCapture::json_body(
+        captured_tokens.clone(),
+        serde_json::to_vec(&response_body())?.into(),
+    );
+    let server = Server::run();
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "multipart")))),
+        ])
+        .times(1)
+        .respond_with(responder),
+    );
+
+    let inner =
+        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
+    let options = inner.options.clone();
+    let stub = crate::storage::transport::Storage::new_test(inner);
+    let err = WriteObject::new(
+        stub,
+        "projects/_/buckets/test-bucket",
+        "test-object",
+        "hello",
+        options,
+    )
+    .set_if_generation_match(0)
+    .with_idempotency(false)
+    .send_unbuffered()
+    .await
+    .expect_err("expected error as with_idempotency is false");
+    assert_eq!(err.http_status_code(), Some(503), "{err:?}");
+
+    let tokens = captured_tokens.lock().unwrap().clone();
+    assert_eq!(
+        tokens.as_slice(),
+        &[None],
+        "with_idempotency(false) must suppress idempotency token even when precondition is set"
+    );
 
     Ok(())
 }
