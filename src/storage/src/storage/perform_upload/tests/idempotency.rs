@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Verify the client library sends `x-goog-gcs-idempotency-token` correctly on
-//! resumable uploads.
+//! uploads.
 
 use super::*;
 use crate::idempotency::IDEMPOTENCY_TOKEN_HEADER;
@@ -21,12 +21,58 @@ use crate::storage::streaming_source::BytesSource;
 use httptest::{Expectation, Server, matchers::*, responders::*};
 use std::sync::Mutex;
 
-// The token is stamped once, outside the retry loop, so every attempt to
-// create the session sends the same token.
+// The token is stamped once, outside the retry loop, so every attempt sends the
+// same token.
+#[tokio::test]
+async fn unbuffered_single_shot_reuses_token() -> Result {
+    let (server, tokens) = single_shot_server(2);
+    start_single_shot(&server)
+        .await?
+        .set_if_generation_match(0)
+        .send_unbuffered()
+        .await?;
+    let tokens = tokens.lock().unwrap().clone();
+    assert!(tokens[0].is_some(), "{tokens:?}");
+    assert_eq!(tokens[0], tokens[1], "{tokens:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn unbuffered_single_shot_unconditioned_omits_token() -> Result {
+    let (server, tokens) = single_shot_server(1);
+    let err = start_single_shot(&server)
+        .await?
+        .send_unbuffered()
+        .await
+        .expect_err("unconditioned uploads are not retried");
+    assert_eq!(err.http_status_code(), Some(503), "{err:?}");
+    assert_eq!(*tokens.lock().unwrap(), vec![None]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn unbuffered_single_shot_idempotency_false_omits_token() -> Result {
+    let (server, tokens) = single_shot_server(1);
+    let err = start_single_shot(&server)
+        .await?
+        .set_if_generation_match(0)
+        .with_idempotency(false)
+        .send_unbuffered()
+        .await
+        .expect_err("with_idempotency(false) disables retries");
+    assert_eq!(err.http_status_code(), Some(503), "{err:?}");
+    assert_eq!(*tokens.lock().unwrap(), vec![None]);
+    Ok(())
+}
+
 #[tokio::test]
 async fn buffered_resumable_reuses_token() -> Result {
     let (server, tokens) = resumable_server();
-    start_resumable(&server).await?.send_buffered().await?;
+    start_resumable(&server)
+        .await?
+        .set_if_generation_match(0)
+        .send_buffered()
+        .await?;
     let tokens = tokens.lock().unwrap().clone();
     assert!(tokens[0].is_some(), "{tokens:?}");
     assert_eq!(tokens[0], tokens[1], "{tokens:?}");
@@ -36,7 +82,11 @@ async fn buffered_resumable_reuses_token() -> Result {
 #[tokio::test]
 async fn unbuffered_resumable_reuses_token() -> Result {
     let (server, tokens) = resumable_server();
-    start_resumable(&server).await?.send_unbuffered().await?;
+    start_resumable(&server)
+        .await?
+        .set_if_generation_match(0)
+        .send_unbuffered()
+        .await?;
     let tokens = tokens.lock().unwrap().clone();
     assert!(tokens[0].is_some(), "{tokens:?}");
     assert_eq!(tokens[0], tokens[1], "{tokens:?}");
@@ -50,11 +100,22 @@ async fn buffered_resumable_idempotency_false_omits_token() -> Result {
     let (server, tokens) = resumable_server();
     start_resumable(&server)
         .await?
+        .set_if_generation_match(0)
         .with_idempotency(false)
         .send_buffered()
         .await?;
     assert_eq!(*tokens.lock().unwrap(), vec![None, None]);
     Ok(())
+}
+
+async fn start_single_shot(server: &Server) -> anyhow::Result<WriteObject<BytesSource>> {
+    let client = test_builder()
+        .with_endpoint(format!("http://{}", server.addr()))
+        .build()
+        .await?;
+    Ok(client
+        .write_object("projects/_/buckets/test-bucket", "test-object", "hello")
+        .with_resumable_upload_threshold(1024 * 1024_usize))
 }
 
 async fn start_resumable(server: &Server) -> anyhow::Result<WriteObject<BytesSource>> {
@@ -64,8 +125,26 @@ async fn start_resumable(server: &Server) -> anyhow::Result<WriteObject<BytesSou
         .await?;
     Ok(client
         .write_object("projects/_/buckets/test-bucket", "test-object", "")
-        .with_resumable_upload_threshold(0_usize)
-        .set_if_generation_match(0))
+        .with_resumable_upload_threshold(0_usize))
+}
+
+/// Returns a server expecting `attempts` single-shot uploads, where the first
+/// one fails with `503`, and the tokens sent on each attempt.
+fn single_shot_server(attempts: usize) -> (Server, CapturedTokens) {
+    let server = Server::run();
+    let tokens = CapturedTokens::default();
+    server.expect(
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("uploadType", "multipart")))),
+        ])
+        .times(attempts)
+        .respond_with(TokenCapture::json_body(
+            tokens.clone(),
+            response_body().to_string().into(),
+        )),
+    );
+    (server, tokens)
 }
 
 /// Returns a server where creating the session fails once with `503`, and the
@@ -105,7 +184,7 @@ fn resumable_server() -> (Server, CapturedTokens) {
 /// The tokens observed by a [TokenCapture], in request order.
 ///
 /// An entry is `None` when the request carried no idempotency token.
-pub(crate) type CapturedTokens = Arc<Mutex<Vec<Option<String>>>>;
+type CapturedTokens = Arc<Mutex<Vec<Option<String>>>>;
 
 enum Success {
     Session(String),
@@ -115,9 +194,8 @@ enum Success {
 /// Fails the first request with `503` and succeeds afterwards, recording the
 /// idempotency token seen on every attempt.
 ///
-/// The stock `httptest` responders cannot inspect request headers, so the
-/// upload tests share this responder.
-pub(crate) struct TokenCapture {
+/// The stock `httptest` responders cannot inspect request headers.
+struct TokenCapture {
     tokens: CapturedTokens,
     call_count: usize,
     success: Success,
@@ -127,7 +205,7 @@ impl TokenCapture {
     /// Responds like the "create resumable upload session" endpoint, returning
     /// `session_url` in the `location` header once the transient failure is
     /// past.
-    pub(crate) fn resumable_session(tokens: CapturedTokens, session_url: String) -> Self {
+    fn resumable_session(tokens: CapturedTokens, session_url: String) -> Self {
         Self {
             tokens,
             call_count: 0,
@@ -136,7 +214,7 @@ impl TokenCapture {
     }
 
     /// Responds with a JSON object payload once the transient failure is past.
-    pub(crate) fn json_body(tokens: CapturedTokens, body: bytes::Bytes) -> Self {
+    fn json_body(tokens: CapturedTokens, body: bytes::Bytes) -> Self {
         Self {
             tokens,
             call_count: 0,

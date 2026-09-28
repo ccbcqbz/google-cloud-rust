@@ -26,7 +26,7 @@ use test_case::test_case;
 type Result = anyhow::Result<()>;
 
 mod checksums;
-pub(super) mod idempotency;
+mod idempotency;
 mod preconditions;
 
 fn response_body() -> Value {
