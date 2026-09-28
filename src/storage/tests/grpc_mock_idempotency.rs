@@ -250,3 +250,39 @@ async fn delete_object_retry_reuses_idempotency_token() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+// A conditioned `DeleteObject` is idempotent and therefore retryable, which makes
+// it the right case to verify that `FAILED_PRECONDITION` (HTTP 412) is treated
+// as a permanent error and fails on the first attempt.
+#[tokio::test]
+async fn delete_object_precondition_failure_is_not_retried() -> anyhow::Result<()> {
+    let mut mock = MockStorage::new();
+    mock.expect_delete_object().times(1).returning(|_| {
+        Err(gaxi::grpc::tonic::Status::failed_precondition(
+            "generation mismatch",
+        ))
+    });
+
+    let (endpoint, _server) = start(BIND_ADDRESS, mock).await?;
+    let client = StorageControl::builder()
+        .with_endpoint(endpoint)
+        .with_credentials(Anonymous::default().build())
+        .build()
+        .await?;
+
+    let err = client
+        .delete_object()
+        .set_bucket(BUCKET_NAME)
+        .set_object(OBJECT_NAME)
+        .set_if_generation_match(54321)
+        .send()
+        .await
+        .expect_err("FAILED_PRECONDITION is permanent and must not be retried");
+    assert_eq!(
+        err.status().map(|s| s.code),
+        Some(google_cloud_gax::error::rpc::Code::FailedPrecondition),
+        "{err:?}"
+    );
+
+    Ok(())
+}

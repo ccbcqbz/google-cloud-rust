@@ -521,6 +521,42 @@ async fn retry_transient_override_idempotency() -> Result {
 }
 
 #[tokio::test]
+async fn retry_transient_failures_then_success() -> Result {
+    let server = Server::run();
+    let matching = || {
+        Expectation::matching(all_of![
+            request::method_path("POST", "/upload/storage/v1/b/test-bucket/o"),
+            request::query(url_decoded(contains(("name", "test-object")))),
+            request::query(url_decoded(contains(("uploadType", "multipart")))),
+        ])
+    };
+    server.expect(matching().times(3).respond_with(cycle![
+        status_code(503).body("try-again"),
+        status_code(503).body("try-again"),
+        json_encoded(response_body()).append_header("content-type", "application/json"),
+    ]));
+
+    let inner =
+        test_inner_client(test_builder().with_endpoint(format!("http://{}", server.addr()))).await;
+    let options = inner.options.clone();
+    let stub = crate::storage::transport::Storage::new_test(inner);
+    let got = WriteObject::new(
+        stub,
+        "projects/_/buckets/test-bucket",
+        "test-object",
+        "hello",
+        options,
+    )
+    .set_if_generation_match(0)
+    .send_unbuffered()
+    .await?;
+    let want = Object::from(serde_json::from_value::<v1::Object>(response_body())?);
+    assert_eq!(got, want);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn retry_transient_failures_then_permanent() -> Result {
     let server = Server::run();
     let matching = || {

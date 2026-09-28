@@ -508,6 +508,7 @@ mod tests {
     #[test_case(crate::model::WriteObjectSpec::default(), false; "write_object_spec: unconditioned is not idempotent")]
     #[test_case(crate::model::WriteObjectSpec { if_generation_match: Some(0), ..Default::default() }, true; "write_object_spec: generation match")]
     #[test_case(crate::model::WriteObjectSpec { if_generation_not_match: Some(0), ..Default::default() }, false; "write_object_spec: generation not_match is not idempotent")]
+    #[test_case(crate::model::WriteObjectSpec { if_metageneration_match: Some(1), ..Default::default() }, false; "write_object_spec: metageneration match alone is not idempotent")]
     fn write_object_spec_idempotency(spec: crate::model::WriteObjectSpec, expected: bool) {
         assert_eq!(spec.is_idempotent(), expected);
     }
