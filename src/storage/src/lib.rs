@@ -59,7 +59,6 @@ pub(crate) use google_cloud_gax::response::Response;
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable-stream")))]
 pub mod appendable_object_writer;
 pub mod backoff_policy;
-pub(crate) mod idempotency;
 pub mod object_descriptor;
 pub mod read_object;
 pub mod read_resume_policy;
@@ -86,6 +85,7 @@ pub mod http {
 }
 
 mod control;
+mod idempotency;
 mod storage;
 
 pub mod client {
