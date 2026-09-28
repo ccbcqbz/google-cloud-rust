@@ -613,22 +613,17 @@ where
 
     /// Configure the idempotency for this upload.
     ///
-    /// By default, the client library treats single-shot uploads as idempotent
-    /// only if they set `if_generation_match`. Without this precondition, if
-    /// the destination bucket is configured with [object versioning] then the
-    /// operation may succeed multiple times with observable side-effects. With
-    /// object versioning and a [lifecycle] policy limiting the number of
-    /// versions, uploading the same data multiple times may result in data
-    /// loss.
+    /// By default, the client library treats single-shot uploads without
+    /// preconditions, as non-idempotent. If the destination bucket is
+    /// configured with [object versioning] then the operation may succeed
+    /// multiple times with observable side-effects. With object versioning and
+    /// a [lifecycle] policy limiting the number of versions, uploading the same
+    /// data multiple times may result in data loss.
     ///
     /// The client library cannot efficiently determine if these conditions
-    /// apply to your upload. If they do not, or your application can tolerate
+    /// apply to your upload. If they do, or your application can tolerate
     /// multiple versions of the same data for other reasons, consider using
     /// `with_idempotency(true)`.
-    ///
-    /// Idempotent uploads include a `x-goog-gcs-idempotency-token` header, so
-    /// the service can deduplicate retried requests. Use
-    /// `with_idempotency(false)` to disable both retries and the header.
     ///
     /// The client library treats resumable uploads as idempotent, regardless of
     /// the value in this option. Such uploads can succeed at most once.
@@ -637,6 +632,8 @@ where
     /// ```
     /// # use google_cloud_storage::client::Storage;
     /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
+    /// use std::time::Duration;
+    /// use google_cloud_gax::retry_policy::RetryPolicyExt;
     /// let response = client
     ///     .write_object("projects/_/buckets/my-bucket", "my-object", "hello world")
     ///     .with_idempotency(true)
