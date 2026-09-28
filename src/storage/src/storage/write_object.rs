@@ -613,32 +613,10 @@ where
 
     /// Configure the idempotency for this upload.
     ///
-    /// By default, the client library treats single-shot uploads without match
-    /// preconditions (`if_generation_match`) as non-idempotent. If the destination
-    /// bucket is configured with [object versioning] then the operation may succeed
-    /// multiple times with observable side-effects. With object versioning and
-    /// a [lifecycle] policy limiting the number of versions, uploading the same
-    /// data multiple times may result in data loss.
-    ///
-    /// When match preconditions (such as `if_generation_match`) are present, the
-    /// upload is automatically classified as idempotent, enabling automatic retries
-    /// with the `x-goog-gcs-idempotency-token` header for server-side deduplication.
-    ///
-    /// Callers can explicitly control retry and token behavior using `with_idempotency(bool)`:
-    /// - `with_idempotency(true)` forces retries and attaches the deduplication token
-    ///   even when match preconditions are absent.
-    /// - `with_idempotency(false)` disables retries on single-shot uploads and suppresses
-    ///   the `x-goog-gcs-idempotency-token` deduplication header, even when match preconditions
-    ///   are present. For resumable uploads, creating the upload session remains retryable
-    ///   (since allocating a session URL does not mutate the object), but the deduplication
-    ///   token header is omitted.
-    ///
     /// # Example
     /// ```
     /// # use google_cloud_storage::client::Storage;
     /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
-    /// use std::time::Duration;
-    /// use google_cloud_gax::retry_policy::RetryPolicyExt;
     /// let response = client
     ///     .write_object("projects/_/buckets/my-bucket", "my-object", "hello world")
     ///     .with_idempotency(true)
@@ -647,6 +625,26 @@ where
     /// println!("response details={response:?}");
     /// # Ok(()) }
     /// ```
+    ///
+    /// By default, the client library treats single-shot uploads as idempotent
+    /// only if they set `if_generation_match`. Without this precondition, if
+    /// the destination bucket is configured with [object versioning] then the
+    /// operation may succeed multiple times with observable side-effects. With
+    /// object versioning and a [lifecycle] policy limiting the number of
+    /// versions, uploading the same data multiple times may result in data
+    /// loss.
+    ///
+    /// The client library cannot efficiently determine if these conditions
+    /// apply to your upload. If they do not, or your application can tolerate
+    /// multiple versions of the same data for other reasons, consider using
+    /// `with_idempotency(true)`.
+    ///
+    /// Idempotent uploads include a `x-goog-gcs-idempotency-token` header, so
+    /// the service can deduplicate retried requests. Use
+    /// `with_idempotency(false)` to disable both retries and the header.
+    ///
+    /// The client library treats resumable uploads as idempotent, regardless of
+    /// the value in this option. Such uploads can succeed at most once.
     ///
     /// [lifecycle]: https://cloud.google.com/storage/docs/lifecycle
     /// [object versioning]: https://cloud.google.com/storage/docs/object-versioning
