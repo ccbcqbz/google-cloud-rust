@@ -92,12 +92,7 @@ where
         // Resolve idempotency and stamp the deduplication token once, outside the
         // retry loop, so every attempt at creating the resumable upload session
         // reuses the identical `x-goog-gcs-idempotency-token`.
-        let options = crate::idempotency::configure_idempotency(
-            self.options.gax(),
-            crate::idempotency::Operation::Mutation {
-                idempotent: self.spec.is_idempotent(),
-            },
-        );
+        let options = crate::idempotency::mutation(self.options.gax(), self.spec.is_idempotent());
 
         let mut upload_url = None;
         let throttler = self.options.retry_throttler.clone();
@@ -186,12 +181,7 @@ where
     }
 
     pub(super) async fn send_unbuffered_single_shot(self, hint: SizeHint) -> Result<Object> {
-        let options = crate::idempotency::configure_idempotency(
-            self.options.gax(),
-            crate::idempotency::Operation::Mutation {
-                idempotent: self.spec.is_idempotent(),
-            },
-        );
+        let options = crate::idempotency::mutation(self.options.gax(), self.spec.is_idempotent());
         let idempotent = options.idempotent().unwrap_or(false);
         let throttler = self.options.retry_throttler.clone();
         let retry = self.options.retry_policy.clone();

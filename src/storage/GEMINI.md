@@ -82,26 +82,12 @@ cargo run --release --package storage-scenarios -- --bucket-name <BUCKET_NAME> [
   should occur in extension files like `model_ext.rs`, `builder_ext.rs`,
   `idempotency.rs`, or the high-level `client.rs` implementations rather than
   the generated modules.
-- **Idempotency & Retries (Adding New APIs):**
-  - **Generated `google.storage.v2.Storage` RPCs (`src/generated/gapic/`):**
-    Configured with `idempotency_hook: resolve_idempotency` in the root
-    `librarian.yaml`. When adding a new unary RPC to `google.storage.v2`:
-    1. Implement `pub(crate) fn resolve_idempotency(&self, options: RequestOptions) -> RequestOptions`
-       on the request struct in `src/idempotency.rs`, delegating to
-       `configure_idempotency(options, Operation::Read)` or
-       `configure_idempotency(options, Operation::mutation(...))` per the
-       [GCS retry strategy](https://cloud.google.com/storage/docs/retry-strategy#idempotency-operations)
-       (`*_not_match` preconditions must **never** be treated as idempotent).
-    2. Update the expected RPC count in the `gapic_transport_idempotency_hook_integrity`
-       test in `src/idempotency.rs` and add unit test cases for the new request.
-  - **Handwritten Data-Plane Operations (`src/storage/perform_upload/`, etc.):**
-    Call `crate::idempotency::configure_idempotency` **once outside the retry
-    loop** so that `x-goog-gcs-idempotency-token` is generated once per logical
-    request and reused unchanged across all retry attempts.
-  - **Generated `google.storage.control.v2.StorageControl` RPCs (`src/generated/gapic_control/`):**
-    Do **not** use `idempotency_hook`. `storage_control.proto` includes
-    `google.api.http` annotations and AIP-155 `request_id` fields, so `sidekick`
-    emits static `set_default_idempotency` calls automatically.
+- **Idempotency & Retries:** Rules for `google.storage.v2.Storage` RPCs live in
+  `src/idempotency.rs` (see its module docs). A new v2 RPC needs a
+  `resolve_idempotency` impl there. Handwritten uploads call
+  `crate::idempotency::mutation` once, outside the retry loop, so all attempts
+  share one `x-goog-gcs-idempotency-token`. `StorageControl` does not use the
+  hook.
 - **Mocking Strategy:** The library provides robust mocking capabilities for
   developers using the crate. The `src/stub/` module defines traits that can be
   implemented or mocked using `mockall` to simulate GCP behavior in unit tests.
