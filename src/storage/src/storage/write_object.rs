@@ -613,19 +613,6 @@ where
 
     /// Configure the idempotency for this upload.
     ///
-    /// # Example
-    /// ```
-    /// # use google_cloud_storage::client::Storage;
-    /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
-    /// let response = client
-    ///     .write_object("projects/_/buckets/my-bucket", "my-object", "hello world")
-    ///     .with_idempotency(true)
-    ///     .send_buffered()
-    ///     .await?;
-    /// println!("response details={response:?}");
-    /// # Ok(()) }
-    /// ```
-    ///
     /// By default, the client library treats single-shot uploads as idempotent
     /// only if they set `if_generation_match`. Without this precondition, if
     /// the destination bucket is configured with [object versioning] then the
@@ -645,6 +632,19 @@ where
     ///
     /// The client library treats resumable uploads as idempotent, regardless of
     /// the value in this option. Such uploads can succeed at most once.
+    ///
+    /// # Example
+    /// ```
+    /// # use google_cloud_storage::client::Storage;
+    /// # async fn sample(client: &Storage) -> anyhow::Result<()> {
+    /// let response = client
+    ///     .write_object("projects/_/buckets/my-bucket", "my-object", "hello world")
+    ///     .with_idempotency(true)
+    ///     .send_buffered()
+    ///     .await?;
+    /// println!("response details={response:?}");
+    /// # Ok(()) }
+    /// ```
     ///
     /// [lifecycle]: https://cloud.google.com/storage/docs/lifecycle
     /// [object versioning]: https://cloud.google.com/storage/docs/object-versioning
