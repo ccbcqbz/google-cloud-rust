@@ -108,6 +108,10 @@ where
         google_cloud_gax::retry_loop_internal::retry_loop(
             inner,
             async |duration| tokio::time::sleep(duration).await,
+            // Resumable uploads are always idempotent, regardless of
+            // `with_idempotency()`. Extra sessions created by retries have no
+            // observable side-effects; they are never used and eventually
+            // garbage collected. A session can be finalized at most once.
             true,
             throttler,
             retry,
