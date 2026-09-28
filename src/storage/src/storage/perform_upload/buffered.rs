@@ -59,10 +59,10 @@ where
         // reuses the identical `x-goog-gcs-idempotency-token`.
         let options = crate::idempotency::mutation(self.options.gax(), self.spec.is_idempotent());
 
-        let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let mut progress = InProgressUpload::new(self.options.resumable_upload_buffer_size(), hint);
         let mut url = None;
         let throttler = self.options.retry_throttler.clone();
+        let retry = Arc::new(ContinueOn308::new(self.options.retry_policy.clone()));
         let backoff = self.options.backoff_policy.clone();
         let mut count = 0;
         let inner = async move |_| {
