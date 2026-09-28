@@ -110,7 +110,6 @@ use crate::model_ext::{KeyAes256, tests::create_key_helper};
 use crate::storage::client::tests::{
     MockBackoffPolicy, MockRetryPolicy, MockRetryThrottler, test_builder,
 };
-use crate::storage::perform_upload::token_capture::assert_resumable_retry_token_reuse;
 use crate::streaming_source::{BytesSource, SizeHint, tests::UnknownSize};
 use google_cloud_auth::credentials::anonymous::Builder as Anonymous;
 use google_cloud_gax::retry_policy::RetryPolicyExt;
@@ -794,51 +793,4 @@ async fn start_resumable_upload_client_retry_options() -> Result {
     assert_eq!(err.http_status_code(), Some(503), "{err:?}");
 
     Ok(())
-}
-
-// The idempotency token is stamped once, outside the retry loop, so every
-// attempt at creating the resumable upload session presents the same
-// deduplication key to the service. Subsequent data PUT requests carry no token.
-#[tokio::test]
-async fn buffered_resumable_retry_token_reuse() -> Result {
-    assert_resumable_retry_token_reuse(true, |endpoint| async move {
-        let client = test_builder()
-            .with_endpoint(endpoint)
-            .with_resumable_upload_threshold(0_usize)
-            .build()
-            .await?;
-
-        let _ = client
-            .write_object("projects/_/buckets/test-bucket", "test-object", "")
-            .set_if_generation_match(0_i64)
-            .send_buffered()
-            .await?;
-
-        Ok(())
-    })
-    .await
-}
-
-// `with_idempotency(false)` overrides the automatic classification, so no
-// deduplication token is sent. Session creation is still retried, because
-// creating a session does not mutate the object.
-#[tokio::test]
-async fn buffered_resumable_idempotency_override_false_omits_token() -> Result {
-    assert_resumable_retry_token_reuse(false, |endpoint| async move {
-        let client = test_builder()
-            .with_endpoint(endpoint)
-            .with_resumable_upload_threshold(0_usize)
-            .build()
-            .await?;
-
-        let _ = client
-            .write_object("projects/_/buckets/test-bucket", "test-object", "")
-            .set_if_generation_match(0_i64)
-            .with_idempotency(false)
-            .send_buffered()
-            .await?;
-
-        Ok(())
-    })
-    .await
 }

@@ -78,7 +78,6 @@
 
 use crate::model_ext::{KeyAes256, tests::create_key_helper};
 use crate::storage::client::{Storage, tests::test_builder};
-use crate::storage::perform_upload::token_capture::assert_resumable_retry_token_reuse;
 use crate::streaming_source::{BytesSource, SizeHint, tests::UnknownSize};
 use gaxi::http::reqwest::Response;
 use google_cloud_auth::credentials::anonymous::Builder as Anonymous;
@@ -1059,26 +1058,6 @@ async fn resumable_upload_handle_response_deser() -> Result {
         .expect_err("bad format should return errors");
     assert!(err.is_deserialization(), "{err:?}");
     Ok(())
-}
-
-#[tokio::test]
-async fn resumable_retry_token_reuse() -> Result {
-    assert_resumable_retry_token_reuse(true, |endpoint| async move {
-        let client = test_builder()
-            .with_endpoint(endpoint)
-            .with_resumable_upload_threshold(0_usize)
-            .build()
-            .await?;
-
-        let _ = client
-            .write_object("projects/_/buckets/test-bucket", "test-object", "")
-            .set_if_generation_match(0_i64)
-            .send_unbuffered()
-            .await?;
-
-        Ok(())
-    })
-    .await
 }
 
 // Creating a resumable upload session does not mutate the object; it only

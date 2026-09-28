@@ -22,8 +22,8 @@ use crate::storage::client::{
     Storage,
     tests::{test_builder, test_inner_client},
 };
+use crate::storage::perform_upload::tests::idempotency::TokenCapture;
 use crate::storage::perform_upload::tests::perform_upload;
-use crate::storage::perform_upload::token_capture::TokenCapture;
 use crate::streaming_source::IterSource;
 use crate::streaming_source::SizeHint;
 use gaxi::http::reqwest::{Method, Request};

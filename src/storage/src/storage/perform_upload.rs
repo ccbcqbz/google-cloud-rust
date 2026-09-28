@@ -255,6 +255,3 @@ const RESUME_INCOMPLETE: StatusCode = StatusCode::PERMANENT_REDIRECT;
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-pub(crate) mod token_capture;
