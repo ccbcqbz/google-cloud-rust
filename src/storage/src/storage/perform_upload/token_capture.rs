@@ -100,9 +100,15 @@ impl httptest::responders::Responder for TokenCapture {
     }
 }
 
-/// Shared helper asserting token reuse across retries when starting a resumable
-/// upload, and verifying that subsequent data `PUT` requests carry no token.
-pub(crate) async fn assert_resumable_retry_token_reuse<F, Fut>(run_upload: F) -> anyhow::Result<()>
+/// Shared helper for retries when starting a resumable upload.
+///
+/// Verifies that session creation is retried once, that the idempotency token
+/// is either reused across both attempts (`expect_token == true`) or absent from
+/// both, and that the data `PUT` request never carries a token.
+pub(crate) async fn assert_resumable_retry_token_reuse<F, Fut>(
+    expect_token: bool,
+    run_upload: F,
+) -> anyhow::Result<()>
 where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = anyhow::Result<()>>,
@@ -155,14 +161,15 @@ where
 
     let tokens = captured_tokens.lock().unwrap().clone();
     assert_eq!(tokens.len(), 2, "must attempt 2 POST requests");
-    assert!(
-        tokens[0].is_some(),
-        "first attempt must have idempotency token"
-    );
-    assert_eq!(
-        tokens[0], tokens[1],
-        "token must be identical across retries"
-    );
+    if expect_token {
+        assert!(tokens[0].is_some(), "{tokens:?}");
+        assert_eq!(
+            tokens[0], tokens[1],
+            "token must be identical across retries"
+        );
+    } else {
+        assert!(tokens.iter().all(Option::is_none), "{tokens:?}");
+    }
 
     Ok(())
 }

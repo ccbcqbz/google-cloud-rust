@@ -1063,7 +1063,7 @@ async fn resumable_upload_handle_response_deser() -> Result {
 
 #[tokio::test]
 async fn resumable_retry_token_reuse() -> Result {
-    assert_resumable_retry_token_reuse(|endpoint| async move {
+    assert_resumable_retry_token_reuse(true, |endpoint| async move {
         let client = test_builder()
             .with_endpoint(endpoint)
             .with_resumable_upload_threshold(0_usize)
